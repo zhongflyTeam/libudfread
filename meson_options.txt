@@ -1,0 +1,12 @@
+# Copyright (C) 2025 Rob Hall
+# SPDX-License-Identifier: MIT
+
+option('enable_examples',
+    type: 'boolean',
+    value: false,
+    description: 'Build libudfread examples')
+
+option('staticlib_only',
+    type: 'boolean',
+    value: false,
+    description: 'Build static library only (no install, for use as libbluray subproject)')
