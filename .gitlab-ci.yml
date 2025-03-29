@@ -20,8 +20,8 @@ build-debian:
 build-macos:
     stage: build
     tags:
-        - catalina
         - amd64
+        - macos
     script:
         - ./bootstrap
         - mkdir build
