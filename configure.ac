@@ -69,6 +69,10 @@ dnl required functions
 AS_IF([test "${SYS}" != "mingw32"], [
   AC_CHECK_FUNC([pread],, [AC_MSG_ERROR("Function pread not found.")])])
 
+dnl symbol visibility
+CC_CHECK_CFLAGS_APPEND([-fvisibility=hidden])
+CPPFLAGS="${CPPFLAGS} -DUDFREAD_API_EXPORT"
+
 dnl compiler warnings
 CC_CHECK_CFLAGS_APPEND([-Wall -Wsign-compare -Wextra])
 CC_CHECK_CFLAGS_APPEND([-std=c99 -pedantic])

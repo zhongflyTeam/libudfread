@@ -8,6 +8,7 @@ AM_CFLAGS = $(SET_FEATURES) $(SET_INCLUDES)
 lib_LTLIBRARIES = libudfread.la
 
 libudfread_la_SOURCES = \
+	src/attributes.h \
 	src/default_blockinput.h \
 	src/default_blockinput.c \
 	src/ecma167.h \
@@ -15,7 +16,7 @@ libudfread_la_SOURCES = \
 	src/udfread.c \
 	src/udfread-version.c
 
-libudfread_la_LDFLAGS = -version-info $(UDFREAD_LTVERSION) -export-symbols-regex "(^udfread_.*)"
+libudfread_la_LDFLAGS = -version-info $(UDFREAD_LTVERSION)
 
 pkgincludedir = $(includedir)/udfread
 pkginclude_HEADERS = \

@@ -22,6 +22,13 @@
 #ifndef UDFREAD_VERSION_H_
 #define UDFREAD_VERSION_H_
 
+#ifdef UDFREAD_API_EXPORT
+#include "attributes.h"
+#else
+#define UDF_PUBLIC
+#define UDF_PRIVATE
+#endif
+
 #define UDFREAD_VERSION_CODE(major, minor, micro) \
     (((major) * 10000) +                         \
      ((minor) *   100) +                         \
@@ -40,6 +47,6 @@
  *  Get library version
  *
  */
-void udfread_get_version(int *major, int *minor, int *micro);
+UDF_PUBLIC void udfread_get_version(int *major, int *minor, int *micro);
 
 #endif /* UDFREAD_VERSION_H_ */
