@@ -22,8 +22,8 @@ endif
 # The final libudfread library
 if get_option('staticlib_only')
     libudfread = static_library('udfread', libudfread_src,
-        dependencies: threads,
-        include_directories: inc_dirs,
+        dependencies: [thread_dependency],
+        include_directories: libudfread_inc_dirs,
         install: false)
 else
     libudfread = library('udfread', libudfread_src,

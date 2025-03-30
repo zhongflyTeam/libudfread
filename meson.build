@@ -70,9 +70,13 @@ endif
 
 # External dependencies and libraries
 
-thread_dependency = dependency('threads', required: false)
-if thread_dependency.found()
-    cdata.set('HAVE_PTHREAD_H', 1)
+if host_machine.system() == 'windows'
+    thread_dependency = []
+else
+    thread_dependency = dependency('threads', required: false)
+    if thread_dependency.found()
+        cdata.set('HAVE_PTHREAD_H', 1)
+    endif
 endif
 
 # Compiler flag tests
