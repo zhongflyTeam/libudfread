@@ -25,6 +25,6 @@ libudfread_api_headers += configure_file(
                     'UDFREAD_VERSION_MINOR': libudfread_version_split[1],
                     'UDFREAD_VERSION_MICRO': libudfread_version_split[2]})
 
-if not get_option('staticlib_only')
+if not get_option('embed_udfread')
     install_headers(libudfread_api_headers, subdir: 'udfread')
 endif

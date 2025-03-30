@@ -6,7 +6,8 @@ option('enable_examples',
     value: false,
     description: 'Build libudfread examples')
 
-option('staticlib_only',
+option('embed_udfread',
     type: 'boolean',
     value: false,
-    description: 'Build static library only (no install, for use as libbluray subproject)')
+    yield: true,
+    description: 'Build libudfread as static library with no install')
