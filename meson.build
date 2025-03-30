@@ -114,8 +114,8 @@ config_h_target = configure_file(output: 'config.h', configuration: cdata)
 # Include subdir meson.build files
 # The order is important!
 
-subdir('src')
-
 subdir('src/udfread')
+
+subdir('src')
 
 subdir('examples')

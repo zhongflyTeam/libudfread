@@ -3,6 +3,7 @@
 
 fs = import('fs')
 
+libudfread_internal_headers = []
 libudfread_api_headers = files(
     '../udfread.h',
     '../blockinput.h',
@@ -12,7 +13,7 @@ libudfread_api_headers = files(
 foreach h: libudfread_api_headers
     basename = fs.name(h)
     if meson.version().version_compare('>= 0.64.0')
-        fs.copyfile(h, basename)
+        libudfread_internal_headers += fs.copyfile(h, basename)
     else
         configure_file(input: h, output: basename, copy: true)
     endif

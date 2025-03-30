@@ -36,6 +36,7 @@ libudfread = build_target('udfread', libudfread_src,
 
 # Make the library usable as a dependency in this and other projects
 libudfread_dep = declare_dependency(link_with: libudfread,
+    sources: libudfread_internal_headers,
     include_directories: '.')
 
 meson.override_dependency('libudfread', libudfread_dep)
