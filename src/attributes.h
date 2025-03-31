@@ -20,20 +20,12 @@
 #ifndef LIBUDFREAD_ATTRIBUTES_H_
 #define LIBUDFREAD_ATTRIBUTES_H_
 
-#if defined(_WIN32)
-#    if defined(__GNUC__)
-#        define UDF_PUBLIC  __attribute__((dllexport))
-#        define UDF_PRIVATE
-#    else
-#        define UDF_PUBLIC  __declspec(dllexport)
-#        define UDF_PRIVATE
-#    endif
-#elif defined(__GNUC__) && __GNUC__ >= 4
+#ifdef UDFREAD_API_EXPORT
+#  if defined(_WIN32)
+#    define UDF_PUBLIC  __declspec(dllexport)
+#  elif defined(__GNUC__) && __GNUC__ >= 4
 #    define UDF_PUBLIC  __attribute__((visibility("default")))
-#    define UDF_PRIVATE __attribute__((visibility("hidden")))
-#else
-#    define UDF_PUBLIC
-#    define UDF_PRIVATE
+#  endif
 #endif
 
 #endif /* LIBUDFREAD_ATTRIBUTES_H_ */

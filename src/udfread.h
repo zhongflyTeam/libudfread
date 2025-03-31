@@ -31,9 +31,8 @@ extern "C" {
 
 #ifdef UDFREAD_API_EXPORT
 #include "attributes.h"
-#else
+#elif !defined(UDF_PUBLIC)
 #define UDF_PUBLIC
-#define UDF_PRIVATE
 #endif
 
 /**
