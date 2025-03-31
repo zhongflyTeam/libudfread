@@ -1,3 +1,6 @@
+- Add Meson build system support.
+- Use visibility attributes for exported symbols.
+
 2021-04-05:  Version 1.1.2
 - Fix handling of non-ASCII .iso filenames in Windows.
 
