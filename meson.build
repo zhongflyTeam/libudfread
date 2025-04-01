@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 project('libudfread', 'c',
-	  version: '1.1.2',
+	  version: '1.2.0',
 	  default_options: ['buildtype=debugoptimized',
                       'c_std=c99',
                       'default_library=both',
@@ -20,18 +20,8 @@ add_project_arguments('-DHAVE_CONFIG_H=1', language: 'c')
 # Include directories
 libudfread_inc_dirs = include_directories('.', 'src', 'src/udfread')
 
-# shared library version (.so version)
-#
-# If there are no interface changes, increase revision.
-# If interfaces have been added, increase current and age. Set revision to 0.
-# If interfaces have been changed or removed, increase current and set age and revision to 0.
-#
-# Library file name will be libudfread.so.(current-age).age.revision
-
-current  = 1
-revision = 0
-age      = 1
-libudfread_soname_version = '@0@.@1@.@2@'.format(current - age, age, revision)
+# The version number for the shared library
+libudfread_soname_version = '3.0.0'
 
 libudfread_version = meson.project_version()
 libudfread_version_split = libudfread_version.split('.')
