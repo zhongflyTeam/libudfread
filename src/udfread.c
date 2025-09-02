@@ -1096,7 +1096,7 @@ static struct udf_dir *_read_subdir(udfread *udf, struct udf_dir *dir, uint32_t 
     }
 
     if (!dir->subdirs) {
-        struct udf_dir **subdirs = (struct udf_dir **)calloc(sizeof(struct udf_dir *), dir->num_entries);
+        struct udf_dir **subdirs = (struct udf_dir **)calloc(dir->num_entries, sizeof(struct udf_dir *));
         if (!subdirs) {
             udf_error("out of memory\n");
             return NULL;
