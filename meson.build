@@ -99,7 +99,7 @@ add_project_arguments(test_args, language: 'c')
 add_project_arguments(cc.get_supported_arguments(optional_arguments), language: 'c')
 
 # Generate config.h
-config_h_target = configure_file(output: 'config.h', configuration: cdata)
+configure_file(output: 'config.h', configuration: cdata)
 
 # Include subdir meson.build files
 # The order is important!
