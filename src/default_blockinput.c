@@ -47,6 +47,11 @@
 # define off_t int64_t
 #endif
 
+#if defined(_MSC_VER) && !defined(ssize_t)
+#include <basetsd.h>
+typedef SSIZE_T ssize_t;
+#endif
+
 #ifdef __ANDROID__
 # undef  lseek
 # define lseek lseek64

@@ -29,6 +29,11 @@ extern "C" {
 #include <stdint.h>    /* *int_t */
 #include <sys/types.h> /* *size_t */
 
+#if defined(_MSC_VER) && !defined(ssize_t)
+#include <basetsd.h>
+typedef SSIZE_T ssize_t;
+#endif
+
 #ifdef UDFREAD_API_EXPORT
 #include "attributes.h"
 #elif !defined(UDF_PUBLIC)

@@ -37,6 +37,8 @@ optional_arguments = []
 
 if host_machine.system() != 'windows'
     test_args += '-D_POSIX_C_SOURCE=200809L'
+elif cc.get_argument_syntax() == 'msvc'
+    test_args += ['-D_CRT_SECURE_NO_WARNINGS', '-D_CRT_NONSTDC_NO_WARNINGS']
 endif
 
 # Header checks
