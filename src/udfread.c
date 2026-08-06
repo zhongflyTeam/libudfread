@@ -1219,7 +1219,7 @@ int udfread_open_input(udfread *udf, udfread_block_input *input/*, int partition
     }
 
     /* read Volume Descriptor Sequence */
-    if (_read_vds(input, 0, &vds) < 0) {
+    if (_read_vds(input, -1, &vds) < 0) {
         return -1;
     }
 
