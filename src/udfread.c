@@ -383,19 +383,22 @@ struct volume_descriptor_set {
     struct logical_volume_descriptor lvd;
 };
 
-static int _search_vds(udfread_block_input *input, int part_number,
+#define VDS_HAVE_PART     (1<<0)
+#define VDS_HAVE_PVD      (1<<1)
+#define VDS_HAVE_LVD      (1<<2)
+#define VDS_HAVE_REQUIRED (VDS_HAVE_PART | VDS_HAVE_PVD)
+#define VDS_HAVE_ALL      (VDS_HAVE_PART | VDS_HAVE_PVD | VDS_HAVE_LVD)
+/* return value: VDS_HAVE_* mask */
+static unsigned _search_vds(udfread_block_input *input, int part_number,
                        const struct extent_ad *loc,
-                       struct volume_descriptor_set *vds)
-
+                       struct volume_descriptor_set *vds,
+                       unsigned found_mask /* already found descriptors */)
 {
     struct volume_descriptor_pointer vdp;
     uint8_t  buf[UDF_BLOCK_SIZE];
     int      tag_id;
     uint32_t lba;
     uint32_t end_lba;
-    int      have_part = 0, have_lvd = 0, have_pvd = 0;
-
-    memset(vds, 0, sizeof(*vds));
 
 next_extent:
     udf_trace("reading Volume Descriptor Sequence at lba %u, len %u bytes\n", loc->lba, loc->length);
@@ -417,58 +420,72 @@ next_extent:
         case ECMA_PrimaryVolumeDescriptor:
             udf_log("Primary Volume Descriptor in lba %u\n", lba);
             decode_primary_volume(buf, &vds->pvd);
-            have_pvd = 1;
+            found_mask |= VDS_HAVE_PVD;
             break;
 
         case ECMA_LogicalVolumeDescriptor:
             udf_log("Logical volume descriptor in lba %u\n", lba);
             decode_logical_volume(buf, &vds->lvd);
-            have_lvd = 1;
+            found_mask |= VDS_HAVE_LVD;
             break;
 
         case ECMA_PartitionDescriptor:
           udf_log("Partition Descriptor in lba %u\n", lba);
-          if (!have_part || part_number == UDFREAD_PARTITION_LAST) {
+          if (!(found_mask & VDS_HAVE_PART) ||
+              part_number == UDFREAD_PARTITION_LAST) {
+
               decode_partition(buf, &vds->pd);
-              have_part = (part_number < 0 || part_number == vds->pd.number);
+              if (part_number < 0 || part_number == vds->pd.number) {
+                  found_mask |= VDS_HAVE_PART;
+              }
               udf_log("  partition %u at lba %u, %u blocks\n", vds->pd.number, vds->pd.start_block, vds->pd.num_blocks);
           }
           break;
 
         case ECMA_TerminatingDescriptor:
             udf_trace("Terminating Descriptor in lba %u\n", lba);
-            return (have_part && have_lvd) ? 0 : -1;
+            return found_mask;
         }
 
-        if (have_part && have_lvd && have_pvd &&
+        if ((found_mask & VDS_HAVE_ALL) == VDS_HAVE_ALL &&
             part_number != UDFREAD_PARTITION_LAST) {
             /* got everything interesting, skip rest blocks */
-            return 0;
+            return found_mask;
         }
     }
 
-    return (have_part && have_lvd) ? 0 : -1;
+    return found_mask;
 }
 
 static int _read_vds(udfread_block_input *input, int part_number,
                      struct volume_descriptor_set *vds)
 {
     struct anchor_volume_descriptor avdp;
+    unsigned found_mask;
 
     /* Find Anchor Volume Descriptor */
     if (_read_avdp(input, &avdp) < 0) {
         return -1;
     }
 
-    // XXX we could read part of descriptors from main area and rest from backup if both are partially corrupted ...
+    memset(vds, 0, sizeof(*vds));
 
     /* try to read Main Volume Descriptor Sequence */
-    if (!_search_vds(input, part_number, &avdp.mvds, vds)) {
+    found_mask = _search_vds(input, part_number, &avdp.mvds, vds, 0);
+    if ((found_mask & VDS_HAVE_ALL) == VDS_HAVE_ALL) {
+        /* all data found */
         return 0;
     }
 
+    /*
+     * Some (or all) descriptors are missing.
+     * Try to read missing descriptors from backup area.
+     */
+
     /* try to read Backup Volume Descriptor */
-    if (!_search_vds(input, part_number, &avdp.rvds, vds)) {
+    found_mask = _search_vds(input, part_number, &avdp.rvds, vds, found_mask);
+    if ((found_mask & VDS_HAVE_REQUIRED) == VDS_HAVE_REQUIRED) {
+        /* all strictly needed data found (PVD may still be missing) */
         return 0;
     }
 
