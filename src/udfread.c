@@ -1,6 +1,6 @@
 /*
  * This file is part of libudfread
- * Copyright (C) 2014-2015 VLC authors and VideoLAN
+ * Copyright (C) 2014-2026 VLC authors and VideoLAN
  *
  * Authors: Petri Hintukainen <phintuka@users.sourceforge.net>
  *
@@ -428,7 +428,7 @@ next_extent:
 
         case ECMA_PartitionDescriptor:
           udf_log("Partition Descriptor in lba %u\n", lba);
-          if (!have_part) {
+          if (!have_part || part_number == UDFREAD_PARTITION_LAST) {
               decode_partition(buf, &vds->pd);
               have_part = (part_number < 0 || part_number == vds->pd.number);
               udf_log("  partition %u at lba %u, %u blocks\n", vds->pd.number, vds->pd.start_block, vds->pd.num_blocks);
@@ -440,7 +440,8 @@ next_extent:
             return (have_part && have_lvd) ? 0 : -1;
         }
 
-        if (have_part && have_lvd && have_pvd) {
+        if (have_part && have_lvd && have_pvd &&
+            part_number != UDFREAD_PARTITION_LAST) {
             /* got everything interesting, skip rest blocks */
             return 0;
         }
@@ -732,10 +733,13 @@ struct udfread {
     char *volume_identifier;
     char volume_set_identifier[128];
 
+    int partition_to_open;
 };
 
 udfread *udfread_init(void)
 {
+    udfread *udf;
+
     /* set up logging */
     if (getenv("UDFREAD_LOG")) {
         enable_log = 1;
@@ -749,7 +753,31 @@ udfread *udfread_init(void)
     udf_log("libudfread " UDFREAD_VERSION_STRING "\n");
 #endif
 
-    return (udfread *)calloc(1, sizeof(udfread));
+    udf = (udfread *)calloc(1, sizeof(udfread));
+    if (!udf) {
+        return NULL;
+    }
+
+    udf->partition_to_open = UDFREAD_PARTITION_FIRST;
+
+    return udf;
+}
+
+int udfread_select_partition (udfread *udf, int partition)
+{
+    if (!udf) {
+        return -1;
+    }
+    if (udf->input) {
+        /* already open */
+        return -1;
+    }
+    if (partition < UDFREAD_PARTITION_LAST) {
+        return -1;
+    }
+
+    udf->partition_to_open = partition;
+    return 0;
 }
 
 /*
@@ -1223,7 +1251,7 @@ int udfread_open_input(udfread *udf, udfread_block_input *input/*, int partition
     }
 
     /* read Volume Descriptor Sequence */
-    if (_read_vds(input, -1, &vds) < 0) {
+    if (_read_vds(input, udf->partition_to_open, &vds) < 0) {
         return -1;
     }
 

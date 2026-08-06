@@ -1,6 +1,6 @@
 /*
  * This file is part of libudfread
- * Copyright (C) 2014-2015 VLC authors and VideoLAN
+ * Copyright (C) 2014-2026 VLC authors and VideoLAN
  *
  * Authors: Petri Hintukainen <phintuka@users.sourceforge.net>
  *
@@ -70,6 +70,21 @@ struct udfread_block_input;
  * @return allocated udfread object, NULL if error
  */
 UDF_PUBLIC udfread *udfread_init (void);
+
+/**
+ *  Select partition to open
+ *
+ *  Partition should be selected before udfread_open*().
+ *  'Success' return does not mean partition was found.
+ *  Function returns error if image is already open.
+ *
+ * @param partition  partition to open (number or UDFREAD_PARTITION_*)
+ * @return 0 on success, < 0 on errror
+ */
+UDF_PUBLIC int udfread_select_partition (udfread *, int partition);
+
+#define UDFREAD_PARTITION_FIRST  (-1)  /* Open first partition */
+#define UDFREAD_PARTITION_LAST   (-2)  /* Open last partition */
 
 /**
  *  Open UDF image
