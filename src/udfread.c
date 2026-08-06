@@ -507,6 +507,7 @@ static int _validate_logical_volume(const struct logical_volume_descriptor *lvd,
 }
 
 static int _map_metadata_partition(udfread_block_input *input,
+                                   ecma_ctx *ecma,
                                    struct udf_partitions *part,
                                    uint32_t lba, uint32_t mirror_lba,
                                    const struct partition_descriptor *pd)
@@ -532,7 +533,7 @@ static int _map_metadata_partition(udfread_block_input *input,
             continue;
         }
 
-        fe = decode_ext_file_entry(buf, UDF_BLOCK_SIZE, pd->number);
+        fe = decode_ext_file_entry(ecma, buf, UDF_BLOCK_SIZE, pd->number);
         if (!fe) {
             udf_error("parsing metadata file entry %u failed\n", i);
             continue;
@@ -565,6 +566,7 @@ static int _map_metadata_partition(udfread_block_input *input,
 }
 
 static int _parse_udf_partition_maps(udfread_block_input *input,
+                                     ecma_ctx *ecma,
                                      struct udf_partitions *part,
                                      const struct volume_descriptor_set *vds)
 {
@@ -652,7 +654,7 @@ static int _parse_udf_partition_maps(udfread_block_input *input,
                     udf_error("metadata file partition %u != %u\n", ref, vds->pd.number);
                 }
 
-                if (!_map_metadata_partition(input, part, lba, mirror_lba, &vds->pd)) {
+                if (!_map_metadata_partition(input, ecma, part, lba, mirror_lba, &vds->pd)) {
                     part->num_partition = 2;
                     part->p[1].number   = i;
                     udf_log("partition map: %u: metadata partition, ref %u. lba %u, mirror %u\n", i, ref, part->p[1].lba, part->p[1].mirror_lba);
@@ -724,6 +726,9 @@ struct udfread {
 
     udfread_block_input *input;
 
+    ecma_ctx ecma;
+    ecma_log lc_storage;
+
     /* Volume partitions */
     struct udf_partitions part;
 
@@ -759,6 +764,10 @@ udfread *udfread_init(void)
     }
 
     udf->partition_to_open = UDFREAD_PARTITION_FIRST;
+
+    udf->lc_storage.ctx    = stderr;
+    udf->lc_storage.logger = (ecma_logger)fprintf;
+    udf->ecma.lc = &udf->lc_storage;
 
     return udf;
 }
@@ -897,10 +906,10 @@ static struct file_entry *_read_file_entry(udfread *udf,
 
     switch (tag_id) {
         case ECMA_FileEntry:
-            fe = decode_file_entry(buf, UDF_BLOCK_SIZE, icb->partition);
+            fe = decode_file_entry(&udf->ecma, buf, UDF_BLOCK_SIZE, icb->partition);
             break;
         case ECMA_ExtendedFileEntry:
-            fe = decode_ext_file_entry(buf, UDF_BLOCK_SIZE, icb->partition);
+            fe = decode_ext_file_entry(&udf->ecma, buf, UDF_BLOCK_SIZE, icb->partition);
             break;
         default:
             udf_error("_read_file_entry: unknown tag %d\n", tag_id);
@@ -932,7 +941,7 @@ static struct file_entry *_read_file_entry(udfread *udf,
                 break;
             }
 
-            if (decode_allocation_extent(&fe, buf, icb->length, icb->partition) < 0) {
+            if (decode_allocation_extent(&udf->ecma, &fe, buf, icb->length, icb->partition) < 0) {
                 free(buf);
                 udf_error("_read_file_entry: decode_allocation_extent() failed\n");
                 break;
@@ -948,7 +957,7 @@ static struct file_entry *_read_file_entry(udfread *udf,
     return fe;
 }
 
-static int _parse_dir(const uint8_t *data, uint32_t length, struct udf_dir *dir)
+static int _parse_dir(ecma_ctx *ecma, const uint8_t *data, uint32_t length, struct udf_dir *dir)
 {
     struct file_identifier fid;
     const uint8_t *p   = data;
@@ -977,7 +986,7 @@ static int _parse_dir(const uint8_t *data, uint32_t length, struct udf_dir *dir)
             return -1;
         }
 
-        used = decode_file_identifier(p, (size_t)(end - p), &fid);
+        used = decode_file_identifier(ecma, p, (size_t)(end - p), &fid);
         if (used == 0) {
             /* not enough data. keep the entries we already have. */
             break;
@@ -1031,7 +1040,7 @@ static struct udf_dir *_read_dir_file(udfread *udf, const struct long_ad *loc)
 
     dir = (struct udf_dir *)calloc(1, sizeof(struct udf_dir));
     if (dir) {
-        if (_parse_dir(data, loc->length, dir) < 0) {
+        if (_parse_dir(&udf->ecma, data, loc->length, dir) < 0) {
             _free_dir(&dir);
         }
     }
@@ -1060,7 +1069,7 @@ static struct udf_dir *_read_dir(udfread *udf, const struct long_ad *icb)
     if (fe->content_inline) {
         dir = (struct udf_dir *)calloc(1, sizeof(struct udf_dir));
         if (dir) {
-            if (_parse_dir(&fe->u.data.content[0], fe->u.data.information_length, dir) < 0) {
+            if (_parse_dir(&udf->ecma, &fe->u.data.content[0], fe->u.data.information_length, dir) < 0) {
                 udf_error("failed parsing inline directory file\n");
                 _free_dir(&dir);
             }
@@ -1269,7 +1278,7 @@ int udfread_open_input(udfread *udf, udfread_block_input *input/*, int partition
     memcpy(udf->volume_set_identifier, vds.pvd.volume_set_identifier, 128);
 
     /* map partitions */
-    if (_parse_udf_partition_maps(input, &udf->part, &vds) < 0) {
+    if (_parse_udf_partition_maps(input, &udf->ecma, &udf->part, &vds) < 0) {
         return -1;
     }
 

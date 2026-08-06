@@ -1,6 +1,6 @@
 /*
  * This file is part of libudfread
- * Copyright (C) 2014-2015 VLC authors and VideoLAN
+ * Copyright (C) 2014-2026 VLC authors and VideoLAN
  *
  * Authors: Petri Hintukainen <phintuka@users.sourceforge.net>
  *
@@ -24,6 +24,24 @@
 
 #include <stdint.h> /* *int_t */
 #include <stddef.h> /* size_t */
+
+/* logger */
+typedef int (*ecma_logger)(void *ctx, const char *fmt, ...);
+typedef struct {
+    int          level;   /* current logging level */
+    void        *ctx;     /* passed to logger */
+    ecma_logger  logger;  /* logger function */
+} ecma_log;
+
+/* logging context */
+typedef const ecma_log ecma_lc;
+
+/* ecma167 context */
+typedef struct {
+    ecma_lc *lc;
+    /* TODO: allocation pool */
+} ecma_ctx;
+
 
 /*
  * Minimal implementation of ECMA-167:
@@ -202,7 +220,7 @@ struct file_identifier {
     uint8_t        filename[256];
 };
 
-size_t decode_file_identifier(const uint8_t *p, size_t size, struct file_identifier *fi);
+size_t decode_file_identifier(ecma_ctx *, const uint8_t *p, size_t size, struct file_identifier *fi);
 
 /* File Entry (ECMA 167, 4/14.9) */
 /* Extended File Entry (ECMA 167, 4/14.17) */
@@ -238,10 +256,10 @@ struct file_entry {
     } u;
 };
 
-struct file_entry *decode_file_entry    (const uint8_t *p, size_t size, uint16_t partition);
-struct file_entry *decode_ext_file_entry(const uint8_t *p, size_t size, uint16_t partition);
+struct file_entry *decode_file_entry    (ecma_ctx *, const uint8_t *p, size_t size, uint16_t partition);
+struct file_entry *decode_ext_file_entry(ecma_ctx *, const uint8_t *p, size_t size, uint16_t partition);
 void               free_file_entry      (struct file_entry **p_fe);
 
-int decode_allocation_extent(struct file_entry **p_fe, const uint8_t *p, size_t size, uint16_t partition);
+int decode_allocation_extent(ecma_ctx *, struct file_entry **p_fe, const uint8_t *p, size_t size, uint16_t partition);
 
 #endif /* UDFREAD_ECMA167_H_ */

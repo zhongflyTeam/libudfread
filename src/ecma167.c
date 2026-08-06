@@ -1,6 +1,6 @@
 /*
  * This file is part of libudfread
- * Copyright (C) 2014-2015 VLC authors and VideoLAN
+ * Copyright (C) 2014-2026 VLC authors and VideoLAN
  *
  * Authors: Petri Hintukainen <phintuka@users.sourceforge.net>
  *
@@ -29,8 +29,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <stdio.h>
-#define ecma_error(...)   fprintf(stderr, "ecma: " __VA_ARGS__)
+#define ecma_error(...) \
+    do { const ecma_ctx *_ctx = (ctx); if (_ctx && _ctx->lc) _ctx->lc->logger(_ctx->lc->ctx, "ecma: " __VA_ARGS__); } while (0)
 
 /*
  * Part 1: General
@@ -169,7 +169,7 @@ void decode_file_set_descriptor(const uint8_t *p, struct file_set_descriptor *fs
 }
 
 /* File Identifier (ECMA 167 4/14.4) */
-size_t decode_file_identifier(const uint8_t *p, size_t size, struct file_identifier *fi)
+size_t decode_file_identifier(ecma_ctx *ctx, const uint8_t *p, size_t size, struct file_identifier *fi)
 {
     size_t l_iu; /* length of implementation use field */
 
@@ -276,7 +276,8 @@ static void _decode_file_ads(const uint8_t *p, int ad_type, uint16_t partition,
     }
 }
 
-static struct file_entry *_decode_file_entry(const uint8_t *p, size_t size,
+static struct file_entry *_decode_file_entry(ecma_ctx *ctx,
+                                             const uint8_t *p, size_t size,
                                              uint16_t partition, uint32_t l_ad, uint32_t p_ad)
 {
     struct file_entry *fe;
@@ -338,7 +339,7 @@ static struct file_entry *_decode_file_entry(const uint8_t *p, size_t size,
     return fe;
 }
 
-int decode_allocation_extent(struct file_entry **p_fe, const uint8_t *p, size_t size, uint16_t partition)
+int decode_allocation_extent(ecma_ctx *ctx, struct file_entry **p_fe, const uint8_t *p, size_t size, uint16_t partition)
 {
     struct file_entry *fe = *p_fe;
     uint32_t l_ad, num_ad;
@@ -376,7 +377,7 @@ int decode_allocation_extent(struct file_entry **p_fe, const uint8_t *p, size_t 
 }
 
 /* File Entry (ECMA 167, 4/14.9) */
-struct file_entry *decode_file_entry(const uint8_t *p, size_t size, uint16_t partition)
+struct file_entry *decode_file_entry(ecma_ctx *ctx, const uint8_t *p, size_t size, uint16_t partition)
 {
     uint32_t l_ea, l_ad;
 
@@ -389,11 +390,11 @@ struct file_entry *decode_file_entry(const uint8_t *p, size_t size, uint16_t par
         return NULL;
     }
 
-    return _decode_file_entry(p, size, partition, l_ad, 176 + l_ea);
+    return _decode_file_entry(ctx, p, size, partition, l_ad, 176 + l_ea);
 }
 
 /* Extended File Entry (ECMA 167, 4/14.17) */
-struct file_entry *decode_ext_file_entry(const uint8_t *p, size_t size, uint16_t partition)
+struct file_entry *decode_ext_file_entry(ecma_ctx *ctx, const uint8_t *p, size_t size, uint16_t partition)
 {
     uint32_t l_ea, l_ad;
 
@@ -406,7 +407,7 @@ struct file_entry *decode_ext_file_entry(const uint8_t *p, size_t size, uint16_t
         return NULL;
     }
 
-    return _decode_file_entry(p, size, partition, l_ad, 216 + l_ea);
+    return _decode_file_entry(ctx, p, size, partition, l_ad, 216 + l_ea);
 }
 
 void free_file_entry(struct file_entry **p_fe)
