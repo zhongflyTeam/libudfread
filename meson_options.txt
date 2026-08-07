@@ -11,6 +11,11 @@ option('enable_docs',
     value: false,
     description: 'Build doxygen documentation')
 
+option('enable_tests',
+    type: 'boolean',
+    value: false,
+    description: 'Build and run libudfread unit and API tests')
+
 option('embed_udfread',
     type: 'boolean',
     value: false,
