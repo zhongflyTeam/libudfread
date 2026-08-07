@@ -6,6 +6,11 @@ option('enable_examples',
     value: false,
     description: 'Build libudfread examples')
 
+option('enable_docs',
+    type: 'boolean',
+    value: false,
+    description: 'Build doxygen documentation')
+
 option('embed_udfread',
     type: 'boolean',
     value: false,

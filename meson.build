@@ -111,3 +111,5 @@ subdir('src/udfread')
 subdir('src')
 
 subdir('examples')
+
+subdir('doc')
