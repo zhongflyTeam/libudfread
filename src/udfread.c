@@ -1256,7 +1256,7 @@ int udfread_open(udfread *udf, const char *path)
     udfread_block_input *input;
     int result;
 
-    if (!path) {
+    if (!udf || !path) {
         return -1;
     }
 
