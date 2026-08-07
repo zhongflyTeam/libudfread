@@ -664,7 +664,11 @@ static int _parse_udf_partition_maps(udfread_block_input *input,
         map += len;
     }
 
-    return num_type1_partition ? 0 : -1;
+    if (!num_type1_partition) {
+        udf_error("no type 1 partition found\n");
+        return -1;
+    }
+    return 0;
 }
 
 
