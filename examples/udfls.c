@@ -78,17 +78,29 @@ int main(int argc, const char *argv[])
 {
     udfread *udf;
     UDFDIR *root;
+    int partition = -1;
 
     if (argc < 2) {
-        fprintf(stderr, "usage: udfls <path>\n"
+        fprintf(stderr, "usage: udfls [-p part] <path>\n"
+                "    part   partition number (optional)\n"
                 "    path   path to UDF filesystem image (raw device or image file)\n");
         return -1;
+    }
+
+    if (argc > 2 && !strcmp(argv[1], "-p")) {
+        partition = atoi(argv[2]);
+        argc += 2;
+        argv += 2;
+        printf("Partition: %d\n", partition);
     }
 
     udf = udfread_init();
     if (!udf) {
         fprintf(stderr, "udfread_init() failed\n");
         return -1;
+    }
+    if (partition != -1) {
+        udfread_select_partition(udf, partition);
     }
     if (udfread_open(udf, argv[1]) < 0) {
         fprintf(stderr, "udfread_open(%s) failed\n", argv[1]);
