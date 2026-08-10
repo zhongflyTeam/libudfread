@@ -34,34 +34,32 @@ extern "C" {
 typedef SSIZE_T ssize_t;
 #endif
 
+/** @cond */
 #ifdef UDFREAD_API_EXPORT
 #include "attributes.h"
 #elif !defined(UDF_PUBLIC)
 #define UDF_PUBLIC
 #endif
+/** @endcond */
 
 /**
- * @file udfread/udfread.h
- * external API header
- */
-
-/*
- * NOTE:
+ * @file udfread.h
+ * @brief external API header
  *
- * UDF filesystem file identifiers may contain nul bytes (0x00).
- *
- * In libudfread API file and directory names are encoded as Modified UTF-8 (MUTF-8).
- * The null character (U+0000) uses two-byte overlong encoding 11000000 10000000
- * (hexadecimal C0 80) instead of 00000000 (hexadecimal 00).
+ * @note UDF filesystem file identifiers may contain nul bytes (0x00).
+ *       In libudfread API file and directory names are encoded as Modified UTF-8 (MUTF-8).
+ *       The null character (U+0000) uses two-byte overlong encoding 11000000 10000000
+ *       (hexadecimal C0 80) instead of 00000000 (hexadecimal 00).
  */
 
-/*
- * UDF volume access
+/** @name Volume access
+ *  @{
  */
 
-/* opaque handle for UDF volume */
+/** Opaque handle for UDF volume */
 typedef struct udfread udfread;
 
+/** Block input callbacks, see blockinput.h */
 struct udfread_block_input;
 
 /**
@@ -83,8 +81,9 @@ UDF_PUBLIC udfread *udfread_init (void);
  */
 UDF_PUBLIC int udfread_select_partition (udfread *, int partition);
 
-#define UDFREAD_PARTITION_FIRST  (-1)  /* Open first partition */
-#define UDFREAD_PARTITION_LAST   (-2)  /* Open last partition */
+/* Special partition numbers for udfread_select_partition() */
+#define UDFREAD_PARTITION_FIRST  (-1)  /**< Open first partition */
+#define UDFREAD_PARTITION_LAST   (-2)  /**< Open last partition */
 
 /**
  *  Open UDF image
@@ -93,7 +92,7 @@ UDF_PUBLIC int udfread_select_partition (udfread *, int partition);
  * @param input  UDF image access functions
  * @return 0 on success, < 0 on error
  */
-UDF_PUBLIC int udfread_open_input (udfread *, struct udfread_block_input *input);
+UDF_PUBLIC int udfread_open_input (udfread *p, struct udfread_block_input *input);
 
 /**
  *  Open UDF image
@@ -102,22 +101,23 @@ UDF_PUBLIC int udfread_open_input (udfread *, struct udfread_block_input *input)
  * @param path  path to device or image file
  * @return 0 on success, < 0 on error
  */
-UDF_PUBLIC int udfread_open (udfread *, const char *path);
+UDF_PUBLIC int udfread_open (udfread *p, const char *path);
 
 /**
  *  Close UDF image
  *
  * @param p  udfread object
  */
-UDF_PUBLIC void udfread_close (udfread *);
+UDF_PUBLIC void udfread_close (udfread *p);
 
 /**
  *  Get UDF Volume Identifier
  *
  * @param p  udfread object
- * @return Volume ID as null-terminated MUTF-8 string, NULL if error. Returned pointer is valid until udfread_close().
+ * @return Volume ID as null-terminated MUTF-8 string, NULL if error
+ * @note Returned pointer is valid until udfread_close().
  */
-UDF_PUBLIC const char *udfread_get_volume_id (udfread *);
+UDF_PUBLIC const char *udfread_get_volume_id (udfread *p);
 
 /**
  *  Get UDF Volume Set Identifier
@@ -127,27 +127,30 @@ UDF_PUBLIC const char *udfread_get_volume_id (udfread *);
  * @param size buffer size
  * @return Volume set id size, 0 if error
  */
-UDF_PUBLIC size_t udfread_get_volume_set_id (udfread *, void *buffer, size_t size);
+UDF_PUBLIC size_t udfread_get_volume_set_id (udfread *p, void *buffer, size_t size);
 
+/** @} */
 
-/*
- * Directory access
+/** @name Directory access
+ *  @{
  */
 
-/* File types for d_type */
-enum {
-    UDF_DT_UNKNOWN = 0,
-    UDF_DT_DIR,
-    UDF_DT_REG,
-};
+/** File types for d_type */
+typedef enum {
+    UDF_DT_UNKNOWN = 0,  /**< Unknown file type */
+    UDF_DT_DIR,          /**< Directory */
+    UDF_DT_REG,          /**< Regular file */
+} udfread_dirent_type;
 
-/* Directory stream entry */
+/**
+ *  Directory stream entry
+ */
 struct udfread_dirent {
-    unsigned int  d_type;    /* UDF_DT_* */
-    const char   *d_name;    /* MUTF-8 */
+    unsigned int  d_type;    /**< UDF_DT_* file type */
+    const char   *d_name;    /**< Entry name (MUTF-8) */
 };
 
-/* opaque handle for directory stream */
+/** Opaque handle for directory stream */
 typedef struct udfread_dir UDFDIR;
 
 /**
@@ -157,7 +160,7 @@ typedef struct udfread_dir UDFDIR;
  * @param path  path to the directory (MUTF-8)
  * @return directory stream handle on the directory, or NULL if it could not be opened.
  */
-UDF_PUBLIC UDFDIR *udfread_opendir (udfread *, const char *path);
+UDF_PUBLIC UDFDIR *udfread_opendir (udfread *p, const char *path);
 
 /**
  *  Open directory stream
@@ -177,10 +180,11 @@ UDF_PUBLIC UDFDIR *udfread_opendir_at(UDFDIR *dir, const char *name);
  *  udfread_dirent struct describing the entry, or NULL for EOF or error.
  *
  * @param p  directory stream
- * @param entry  storege space for directory entry
+ * @param entry  storage space for directory entry
  * @return next directory stream entry, or NULL if EOF or error.
+ * @sa udfread_rewinddir()
  */
-UDF_PUBLIC struct udfread_dirent *udfread_readdir (UDFDIR *, struct udfread_dirent *entry);
+UDF_PUBLIC struct udfread_dirent *udfread_readdir (UDFDIR *p, struct udfread_dirent *entry);
 
 /**
  *  Rewind directory stream
@@ -189,29 +193,29 @@ UDF_PUBLIC struct udfread_dirent *udfread_readdir (UDFDIR *, struct udfread_dire
  *
  * @param p  directory stream
  */
-UDF_PUBLIC void udfread_rewinddir (UDFDIR *);
+UDF_PUBLIC void udfread_rewinddir (UDFDIR *p);
 
 /**
  *  Close directory stream
  *
  * @param p  directory stream
  */
-UDF_PUBLIC void udfread_closedir (UDFDIR *);
+UDF_PUBLIC void udfread_closedir (UDFDIR *p);
 
+/** @} */
 
-/*
- * File access
+/** @name File access
+ *  @{
  */
 
 /**
- * The length of one Logical Block
+ *  The length of one Logical Block
  */
-
 #ifndef UDF_BLOCK_SIZE
 #  define UDF_BLOCK_SIZE  2048
 #endif
 
-/* opaque handle for open file */
+/** Opaque handle for open file */
 typedef struct udfread_file UDFFILE;
 
 /**
@@ -225,8 +229,9 @@ typedef struct udfread_file UDFFILE;
  * @param p  udfread object
  * @param path  path to the file (MUTF-8)
  * @return file object, or NULL if it could not be opened.
+ * @sa udfread_file_openat()
  */
-UDF_PUBLIC UDFFILE *udfread_file_open (udfread *, const char *path);
+UDF_PUBLIC UDFFILE *udfread_file_open (udfread *p, const char *path);
 
 /**
  *  Open a file from directory
@@ -236,6 +241,7 @@ UDF_PUBLIC UDFFILE *udfread_file_open (udfread *, const char *path);
  * @param dir  parent directory stream handle
  * @param name  name of the file (MUTF-8)
  * @return file object, or NULL if it could not be opened.
+ * @sa udfread_file_open()
  */
 UDF_PUBLIC UDFFILE *udfread_file_openat (UDFDIR *dir, const char *name);
 
@@ -244,7 +250,7 @@ UDF_PUBLIC UDFFILE *udfread_file_openat (UDFDIR *dir, const char *name);
  *
  * @param p  file object
  */
-UDF_PUBLIC void udfread_file_close (UDFFILE *);
+UDF_PUBLIC void udfread_file_close (UDFFILE *p);
 
 /**
  *  Get file size
@@ -252,10 +258,12 @@ UDF_PUBLIC void udfread_file_close (UDFFILE *);
  * @param p  file object
  * @return file size, -1 on error
  */
-UDF_PUBLIC int64_t udfread_file_size (UDFFILE *);
+UDF_PUBLIC int64_t udfread_file_size (UDFFILE *p);
 
-/*
- * Block access
+/** @} */
+
+/** @name Block access
+ *  @{
  */
 
 /**
@@ -267,7 +275,7 @@ UDF_PUBLIC int64_t udfread_file_size (UDFFILE *);
  * @param file_block  file block number
  * @return absolute block address, 0 on error
  */
-UDF_PUBLIC uint32_t udfread_file_lba (UDFFILE *, uint32_t file_block);
+UDF_PUBLIC uint32_t udfread_file_lba (UDFFILE *p, uint32_t file_block);
 
 /**
  *  Read blocks from a file
@@ -276,20 +284,23 @@ UDF_PUBLIC uint32_t udfread_file_lba (UDFFILE *, uint32_t file_block);
  * @param buf  buffer for data
  * @param file_block  file block number
  * @param num_blocks  number of blocks to read
+ * @param flags  read flags, passed to input->read()
  * @return number of blocks read, 0 on error
  */
-UDF_PUBLIC uint32_t udfread_read_blocks (UDFFILE *, void *buf, uint32_t file_block, uint32_t num_blocks, int flags);
+UDF_PUBLIC uint32_t udfread_read_blocks (UDFFILE *p, void *buf, uint32_t file_block, uint32_t num_blocks, int flags);
 
+/** @} */
 
-/*
- * Byte streams
+/** @name Byte streams
+ *  @{
  */
 
-enum {
-    UDF_SEEK_SET = 0,
-    UDF_SEEK_CUR = 1,
-    UDF_SEEK_END = 2,
-};
+/** Seek directives for udfread_file_seek() */
+typedef enum {
+    UDF_SEEK_SET = 0,  /**< The offset is set to offset bytes */
+    UDF_SEEK_CUR = 1,  /**< The offset is set to its current location plus offset bytes */
+    UDF_SEEK_END = 2,  /**< The offset is set to the size of the file plus offset bytes */
+} udfread_seek_type;
 
 /**
  *  Read bytes from a file
@@ -302,7 +313,7 @@ enum {
  * @param bytes  number of bytes to read
  * @return number of bytes read, 0 on EOF, -1 on error
  */
-UDF_PUBLIC ssize_t udfread_file_read (UDFFILE *, void *buf, size_t bytes);
+UDF_PUBLIC ssize_t udfread_file_read (UDFFILE *p, void *buf, size_t bytes);
 
 /**
  *  Get current read position of a file
@@ -310,7 +321,7 @@ UDF_PUBLIC ssize_t udfread_file_read (UDFFILE *, void *buf, size_t bytes);
  * @param p  file object
  * @return current read position of the file, -1 on error
  */
-UDF_PUBLIC int64_t udfread_file_tell (UDFFILE *);
+UDF_PUBLIC int64_t udfread_file_tell (UDFFILE *p);
 
 /**
  *  Set read position of a file
@@ -322,11 +333,13 @@ UDF_PUBLIC int64_t udfread_file_tell (UDFFILE *);
  *
  * @param p  file object
  * @param pos  byte offset
- * @param whence  directive
+ * @param whence  directive (UDF_SEEK_*)
  * @return current read position of the file, -1 on error
+ * @sa udfread_file_tell()
  */
-UDF_PUBLIC int64_t udfread_file_seek (UDFFILE *, int64_t pos, int whence);
+UDF_PUBLIC int64_t udfread_file_seek (UDFFILE *p, int64_t pos, int whence);
 
+/** @} */
 
 #ifdef __cplusplus
 } /* extern "C" */

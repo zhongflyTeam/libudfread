@@ -1,6 +1,6 @@
 /*
  * This file is part of libudfread
- * Copyright (C) 2014-2015 VLC authors and VideoLAN
+ * Copyright (C) 2014-2026 VLC authors and VideoLAN
  *
  * Authors: Petri Hintukainen <phintuka@users.sourceforge.net>
  *
@@ -29,22 +29,49 @@ extern "C" {
 #include <stdint.h>
 
 /**
- * @file udfread/blockinput.h
- * external API header
+ * @file blockinput.h
+ * @brief block-level input callbacks for accessing UDF image
+ *
+ * @note All block addresses are in 2048-byte blocks.
  */
 
+/** @cond */
 #ifndef UDF_BLOCK_SIZE
 #  define UDF_BLOCK_SIZE  2048
 #endif
+/** @endcond */
 
 typedef struct udfread_block_input udfread_block_input;
 
+/**
+ *  Block input access functions
+ *
+ *  Provide these callbacks to udfread_open_input() to access UDF image
+ *  outside of local filesystem.
+ *  Optional callbacks may be NULL.
+ */
 struct udfread_block_input {
-    /* Close input. Optional. */
+    /**
+     *  Close input
+     *  Optional; may be NULL.
+     */
     int      (*close) (udfread_block_input *);
-    /* Read block(s) from input. Mandatory. */
-    int      (*read)  (udfread_block_input *, uint32_t lba, void *buf, uint32_t nblocks, int flags);
-    /* Input size in blocks. Optional. */
+    /**
+     *  Read blocks from input
+     *  Mandatory.
+     *
+     * @param input  block input
+     * @param lba  block address to read from
+     * @param buf  buffer for data
+     * @param nblocks  number of blocks to read
+     * @param flags  read flags (passthru from udfread_read_blocks())
+     * @return number of blocks read, 0 on error
+     */
+    int      (*read)  (udfread_block_input *input, uint32_t lba, void *buf, uint32_t nblocks, int flags);
+    /**
+     *  Input size in blocks
+     *  Optional; may be NULL.
+     */
     uint32_t (*size)  (udfread_block_input *);
 };
 

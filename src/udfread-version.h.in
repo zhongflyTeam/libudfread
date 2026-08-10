@@ -1,6 +1,6 @@
 /*
  * This file is part of libudfread
- * Copyright (C) 2014 VLC authors and VideoLAN
+ * Copyright (C) 2014-2026 VLC authors and VideoLAN
  *
  * Authors: Petri Hintukainen <phintuka@users.sourceforge.net>
  *
@@ -26,29 +26,47 @@
 extern "C" {
 #endif
 
+/**
+ * @file udfread-version.h
+ * @brief library version information
+ */
+
+/** @cond */
 #ifdef UDFREAD_API_EXPORT
 #include "attributes.h"
 #elif !defined(UDF_PUBLIC)
 #define UDF_PUBLIC
 #endif
+/** @endcond */
 
+/**
+ *  Combine version numbers into a version code
+ */
 #define UDFREAD_VERSION_CODE(major, minor, micro) \
     (((major) * 10000) +                         \
      ((minor) *   100) +                         \
      ((micro) *     1))
 
+/** Library version major number */
 #define UDFREAD_VERSION_MAJOR @UDFREAD_VERSION_MAJOR@
+/** Library version minor number */
 #define UDFREAD_VERSION_MINOR @UDFREAD_VERSION_MINOR@
+/** Library version micro number */
 #define UDFREAD_VERSION_MICRO @UDFREAD_VERSION_MICRO@
 
+/** Library version as a string */
 #define UDFREAD_VERSION_STRING "@UDFREAD_VERSION_MAJOR@.@UDFREAD_VERSION_MINOR@.@UDFREAD_VERSION_MICRO@"
 
+/** Library version as a single number */
 #define UDFREAD_VERSION \
     UDFREAD_VERSION_CODE(UDFREAD_VERSION_MAJOR, UDFREAD_VERSION_MINOR, UDFREAD_VERSION_MICRO)
 
 /**
  *  Get library version
  *
+ * @param major  receives library version major number
+ * @param minor  receives library version minor number
+ * @param micro  receives library version micro number
  */
 UDF_PUBLIC void udfread_get_version(int *major, int *minor, int *micro);
 
