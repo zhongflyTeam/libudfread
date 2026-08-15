@@ -33,6 +33,7 @@
 #include "default_blockinput.h"
 #include "ecma167.h"
 #include "udf_volume.h"
+#include "udf_atomic.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -55,60 +56,6 @@ static int enable_trace = 0;
 #define udf_error(...)   do {                   fprintf(stderr, "udfread ERROR: " __VA_ARGS__); } while (0)
 #define udf_log(...)     do { if (enable_log)   fprintf(stderr, "udfread LOG  : " __VA_ARGS__); } while (0)
 #define udf_trace(...)   do { if (enable_trace) fprintf(stderr, "udfread TRACE: " __VA_ARGS__); } while (0)
-
-
-/*
- * atomic operations
- */
-
-#if defined (__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4) || (defined (__clang__) && (defined (__x86_64__) || defined (__i386__)))
-
-#  define atomic_pointer_compare_and_exchange(atomic, oldval, newval) \
-    __sync_bool_compare_and_swap((atomic), (oldval), (newval))
-
-#elif defined(_WIN32)
-
-#include <windows.h>
-
-static int atomic_pointer_compare_and_exchange(void *atomic, void *oldval, void *newval)
-{
-    static int init = 0;
-    static CRITICAL_SECTION cs = {0};
-    if (!init) {
-        init = 1;
-        InitializeCriticalSection(&cs);
-    }
-    int result;
-    EnterCriticalSection(&cs);
-    result = *(void**)atomic == oldval;
-    if (result) {
-        *(void**)atomic = newval;
-    }
-    LeaveCriticalSection(&cs);
-    return result;
-}
-
-#elif defined(HAVE_PTHREAD_H)
-
-#include <pthread.h>
-
-static int atomic_pointer_compare_and_exchange(void *atomic, void *oldval, void *newval)
-{
-    static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-    int result;
-    pthread_mutex_lock(&lock);
-    result = *(void**)atomic == oldval;
-    if (result) {
-        *(void**)atomic = newval;
-    }
-    pthread_mutex_unlock(&lock);
-    return result;
-}
-
-#else
-# error no atomic operation support
-#endif
-
 
 /*
  * utils
