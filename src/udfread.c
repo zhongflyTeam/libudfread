@@ -604,9 +604,9 @@ static int _parse_dir(ecma_ctx *ecma, const uint8_t *data, uint32_t length, stru
     return 0;
 }
 
-static struct udf_dir *_read_dir_file(udfread *udf, const struct long_ad *loc)
+static int _read_dir_file(udfread *udf, const struct long_ad *loc, struct udf_dir *dir)
 {
-    struct udf_dir *dir = NULL;
+    int             result;
     uint8_t        *data;
     int             tag_id;
 
@@ -615,57 +615,49 @@ static struct udf_dir *_read_dir_file(udfread *udf, const struct long_ad *loc)
     data = _read_metadata(udf, loc, &tag_id);
     if (!data) {
         udf_error("reading directory file failed\n");
-        return NULL;
+        return -1;
     }
 
-    dir = (struct udf_dir *)calloc(1, sizeof(struct udf_dir));
-    if (dir) {
-        if (_parse_dir(&udf->ecma, data, loc->length, dir) < 0) {
-            _free_dir(&dir);
-        }
-    }
+    result = _parse_dir(&udf->ecma, data, loc->length, dir);
 
     free(data);
-    return dir;
+    return result;
 }
 
-static struct udf_dir *_read_dir(udfread *udf, const struct long_ad *icb)
+static int _read_dir(udfread *udf, const struct long_ad *icb, struct udf_dir *dir)
 {
     struct file_entry *fe;
-    struct udf_dir    *dir = NULL;
+    int                result;
 
     fe = _read_file_entry(udf, icb);
     if (!fe) {
         udf_error("error reading directory file entry\n");
-        return NULL;
+        return -1;
     }
 
     if (fe->file_type != ECMA_FT_DIR) {
         udf_error("directory file type is not directory\n");
         free_file_entry(&fe);
-        return NULL;
+        return -1;
     }
 
     if (fe->content_inline) {
-        dir = (struct udf_dir *)calloc(1, sizeof(struct udf_dir));
-        if (dir) {
-            if (_parse_dir(&udf->ecma, &fe->u.data.content[0], fe->u.data.information_length, dir) < 0) {
+        result = _parse_dir(&udf->ecma, &fe->u.data.content[0], fe->u.data.information_length, dir);
+        if (result < 0 ) {
                 udf_error("failed parsing inline directory file\n");
-                _free_dir(&dir);
-            }
         }
-
     } else if (fe->u.ads.num_ad == 0) {
         udf_error("empty directory file");
+        result = -1;
     } else {
         if (fe->u.ads.num_ad > 1) {
             udf_error("unsupported fragmented directory file\n");
         }
-        dir = _read_dir_file(udf, &fe->u.ads.ad[0]);
+        result = _read_dir_file(udf, &fe->u.ads.ad[0], dir);
     }
 
     free_file_entry(&fe);
-    return dir;
+    return result;
 }
 
 static int _find_root_dir(udfread *udf, const struct long_ad *fsd_loc,
@@ -720,8 +712,13 @@ static struct udf_dir *_read_subdir(udfread *udf, struct udf_dir *dir, uint32_t 
     }
 
     if (!dir->subdirs[index]) {
-        struct udf_dir *subdir = _read_dir(udf, &dir->files[index].icb);
+        struct udf_dir *subdir = (struct udf_dir *)calloc(1, sizeof(struct udf_dir));
         if (!subdir) {
+            udf_error("out of memory\n");
+            return NULL;
+        }
+        if (_read_dir(udf, &dir->files[index].icb, subdir) < 0) {
+            _free_dir(&subdir);
             return NULL;
         }
         if (!atomic_pointer_compare_and_exchange(&dir->subdirs[index], NULL, subdir)) {
@@ -863,9 +860,14 @@ int udfread_open_input(udfread *udf, udfread_block_input *input/*, int partition
     }
 
     /* Read root directory */
-    udf->root_dir = _read_dir(udf, &fsd.root_icb);
+    udf->root_dir = (struct udf_dir *)calloc(1, sizeof(struct udf_dir));
     if (!udf->root_dir) {
-        udf_error("error reading root directory\n");
+        udf_error("out of memory\n");
+        udf->input = NULL;
+        return -1;
+    }
+    if (_read_dir(udf, &fsd.root_icb, udf->root_dir) < 0) {
+        _free_dir(&udf->root_dir);
         udf->input = NULL;
         return -1;
     }
