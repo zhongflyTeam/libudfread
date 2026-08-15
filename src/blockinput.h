@@ -60,6 +60,9 @@ struct udfread_block_input {
      *  Read blocks from input
      *  Mandatory.
      *
+     *  May be called concurrently from multiple threads; the input must be
+     *  thread-safe (or externally synchronized).
+     *
      * @param input  block input
      * @param lba  block address to read from
      * @param buf  buffer for data

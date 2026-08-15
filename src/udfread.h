@@ -50,6 +50,12 @@ typedef SSIZE_T ssize_t;
  *       In libudfread API file and directory names are encoded as Modified UTF-8 (MUTF-8).
  *       The null character (U+0000) uses two-byte overlong encoding 11000000 10000000
  *       (hexadecimal C0 80) instead of 00000000 (hexadecimal 00).
+ *
+ * @note Thread safety: after a volume has been opened (udfread_open or
+ *       udfread_open_input) the library is thread-safe — the same udfread
+ *       handle may be used concurrently from multiple threads.
+ *       udfread_close must not run concurrently with any other call on the
+ *       same handle.
  */
 
 /** @name Volume access
@@ -271,6 +277,9 @@ typedef struct udfread_file UDFFILE;
  *  Path to the file is always absolute (relative to disc image root).
  *  Path may begin with single separator char.
  *  Path may not contain "." or ".." directory components.
+ *
+ *  The returned file object is not thread-safe; a single UDFFILE handle
+ *  must not be used from multiple threads concurrently.
  *
  * @param p  udfread object
  * @param path  path to the file (MUTF-8)
