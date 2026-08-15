@@ -668,9 +668,9 @@ static struct udf_dir *_read_dir(udfread *udf, const struct long_ad *icb)
     return dir;
 }
 
-static int _read_root_dir(udfread *udf, const struct long_ad *fsd_loc)
+static int _find_root_dir(udfread *udf, const struct long_ad *fsd_loc,
+                          struct file_set_descriptor *fsd)
 {
-    struct file_set_descriptor fsd;
     uint8_t             buf[UDF_BLOCK_SIZE];
     int                 tag_id = -1;
     struct long_ad      loc = *fsd_loc;
@@ -696,16 +696,8 @@ static int _read_root_dir(udfread *udf, const struct long_ad *fsd_loc)
         return -1;
     }
 
-    decode_file_set_descriptor(buf, &fsd);
-    udf_log("root directory in part %u lba %u\n", fsd.root_icb.partition, fsd.root_icb.lba);
-
-    /* read root directory from location given in File Set Descriptor */
-
-    udf->root_dir = _read_dir(udf, &fsd.root_icb);
-    if (!udf->root_dir) {
-        udf_error("error reading root directory\n");
-        return -1;
-    }
+    decode_file_set_descriptor(buf, fsd);
+    udf_log("root directory in part %u lba %u\n", fsd->root_icb.partition, fsd->root_icb.lba);
 
     return 0;
 }
@@ -830,6 +822,7 @@ int udfread_open_input(udfread *udf, udfread_block_input *input/*, int partition
 {
     struct volume_descriptor_set vds;
     struct long_ad fsd_location;
+    struct file_set_descriptor fsd;
 
     if (!udf || !input || !input->read) {
         return -1;
@@ -862,9 +855,17 @@ int udfread_open_input(udfread *udf, udfread_block_input *input/*, int partition
         return -1;
     }
 
-    /* Read root directory */
+    /* Search for root directory from location given in File Set Descriptor */
     udf->input = input;
-    if (_read_root_dir(udf, &fsd_location) < 0) {
+    if (_find_root_dir(udf, &fsd_location, &fsd) < 0) {
+        udf->input = NULL;
+        return -1;
+    }
+
+    /* Read root directory */
+    udf->root_dir = _read_dir(udf, &fsd.root_icb);
+    if (!udf->root_dir) {
+        udf_error("error reading root directory\n");
         udf->input = NULL;
         return -1;
     }
