@@ -1,5 +1,6 @@
 stages:
     - build
+    - test
 
 variables:
     GIT_SUBMODULE_STRATEGY: normal
@@ -14,6 +15,17 @@ build-debian:
         - meson setup build -Dbuildtype=release
                             -Denable_examples=true
         - meson compile -C build
+
+test-debian:
+    image: registry.videolan.org/dav1d-debian-unstable:20250207200301
+    stage: test
+    tags:
+        - docker
+        - amd64
+    script:
+        - meson setup build -Dbuildtype=release -Denable_tests=true
+        - meson compile -C build
+        - meson test -C build --print-errorlogs
 
 build-macos:
     stage: build
