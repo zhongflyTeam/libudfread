@@ -77,13 +77,59 @@ UDF_PUBLIC udfread *udfread_init (void);
  *  Function returns error if image is already open.
  *
  * @param partition  partition to open (number or UDFREAD_PARTITION_*)
- * @return 0 on success, < 0 on errror
+ * @return 0 on success, < 0 on error
  */
 UDF_PUBLIC int udfread_select_partition (udfread *, int partition);
 
 /* Special partition numbers for udfread_select_partition() */
 #define UDFREAD_PARTITION_FIRST  (-1)  /**< Open first partition */
 #define UDFREAD_PARTITION_LAST   (-2)  /**< Open last partition */
+
+/**
+ *  Set logging handler
+ *
+ *  Set the printf-style logging function and the context passed to it.
+ *  Does not change log level (see udfread_set_log_level()).
+ *  Passing NULL logger resets to the default handler (fprintf to stderr).
+ *
+ *  @note Must be called before the image is opened.
+ *
+ *  Example:
+ *  @code
+ *  udfread *udf = udfread_init();
+ *  udfread_set_log(udf, NULL, my_logger);   // my_logger is printf-style
+ *  udfread_set_log_level(udf, UDFREAD_LOG_INFO);
+ *  udfread_open(udf, "/dev/sr0");
+ *  @endcode
+ *
+ * @param udf  udfread object
+ * @param ctx  user context passed to logger
+ * @param logger  printf-style logging function, NULL to reset to the default handler
+ * @return 0 on success, < 0 on error (image already open)
+ * @sa udfread_set_log_level()
+ */
+UDF_PUBLIC int udfread_set_log (udfread *udf, void *ctx, int (*logger)(void *ctx, const char *fmt, ...) );
+
+/**
+ *  Set logging level
+ *
+ *  Enable or disable logging. With UDFREAD_LOG_NONE logging is disabled;
+ *  otherwise the handler set with udfread_set_log() is used.
+ *
+ *  May also be called after the image is opened.
+ *
+ * @param udf  udfread object
+ * @param level  UDFREAD_LOG_NONE, UDFREAD_LOG_ERROR, UDFREAD_LOG_INFO or UDFREAD_LOG_TRACE
+ * @return 0 on success, < 0 on error (invalid level)
+ * @sa udfread_set_log()
+ */
+UDF_PUBLIC int udfread_set_log_level (udfread *udf, int level);
+
+/* Log levels for udfread_set_log_level() (default: UDFREAD_LOG_ERROR) */
+#define UDFREAD_LOG_NONE  0  /**< Logging disabled */
+#define UDFREAD_LOG_ERROR 1  /**< Errors only (default) */
+#define UDFREAD_LOG_INFO  2  /**< Errors and informational messages */
+#define UDFREAD_LOG_TRACE 3  /**< Everything, including debug traces */
 
 /**
  *  Open UDF image

@@ -782,11 +782,69 @@ udfread *udfread_init(void)
 
     udf->partition_to_open = UDFREAD_PARTITION_FIRST;
 
+    if (getenv("UDFREAD_TRACE")) {
+        udf->lc_storage.level  = UDFREAD_LOG_TRACE;
+    } else if (getenv("UDFREAD_LOG")) {
+        udf->lc_storage.level  = UDFREAD_LOG_INFO;
+    } else {
+        udf->lc_storage.level  = UDFREAD_LOG_ERROR;
+    }
     udf->lc_storage.ctx    = stderr;
     udf->lc_storage.logger = (ecma_logger)fprintf;
     udf->ecma.lc = &udf->lc_storage;
 
     return udf;
+}
+
+int udfread_set_log (udfread *udf, void *ctx, int (*logger)(void *ctx, const char *fmt, ...) )
+{
+    if (!udf || udf->input) {
+        /*
+         * Changing the handler requires updating both ctx and logger
+         * function atomically; with the image open this would need
+         * locking, so the handler can only be changed before open.
+         * After open only the level may be changed: it is stored in
+         * lc_storage, whose ctx/logger fields are immutable by then.
+         */
+        return -1;
+    }
+
+    if (logger) {
+        udf->lc_storage.ctx = ctx;
+        udf->lc_storage.logger = logger;
+    } else {
+        /* NULL logger: reset to the default handler (fprintf to stderr) */
+        udf->lc_storage.ctx = stderr;
+        udf->lc_storage.logger = (ecma_logger)fprintf;
+    }
+
+#ifdef HAVE_UDFREAD_VERSION_H
+    udf->lc_storage.logger(udf->lc_storage.ctx, "libudfread " UDFREAD_VERSION_STRING "\n");
+#endif
+
+    return 0;
+}
+
+int udfread_set_log_level (udfread *udf, int level)
+{
+    if (!udf || level < UDFREAD_LOG_NONE || level > UDFREAD_LOG_TRACE) {
+        return -1;
+    }
+
+    if (level <= UDFREAD_LOG_NONE) {
+        udf->ecma.lc = NULL;
+    } else {
+        udf->lc_storage.level = level;
+        /*
+         * Enabling/disabling logging is a single pointer update
+         * (ecma.lc) and therefore safe to do while the image is open;
+         * the published struct is always fully initialized because its
+         * ctx/logger fields cannot change after open.
+         */
+        udf->ecma.lc = &udf->lc_storage;
+    }
+
+    return 0;
 }
 
 int udfread_select_partition (udfread *udf, int partition)
