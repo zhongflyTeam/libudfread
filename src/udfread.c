@@ -744,7 +744,7 @@ struct udfread {
     udfread_block_input *input;
 
     ecma_ctx ecma;
-    ecma_log lc_storage;
+    udf_log  lc_storage;
 
     /* Volume partitions */
     struct udf_partitions part;
@@ -790,7 +790,7 @@ udfread *udfread_init(void)
         udf->lc_storage.level  = UDFREAD_LOG_ERROR;
     }
     udf->lc_storage.ctx    = stderr;
-    udf->lc_storage.logger = (ecma_logger)fprintf;
+    udf->lc_storage.logger = (udf_logger)fprintf;
     udf->ecma.lc = &udf->lc_storage;
 
     return udf;
@@ -815,7 +815,7 @@ int udfread_set_log (udfread *udf, void *ctx, int (*logger)(void *ctx, const cha
     } else {
         /* NULL logger: reset to the default handler (fprintf to stderr) */
         udf->lc_storage.ctx = stderr;
-        udf->lc_storage.logger = (ecma_logger)fprintf;
+        udf->lc_storage.logger = (udf_logger)fprintf;
     }
 
 #ifdef HAVE_UDFREAD_VERSION_H

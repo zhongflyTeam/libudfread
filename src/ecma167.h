@@ -25,20 +25,11 @@
 #include <stdint.h> /* *int_t */
 #include <stddef.h> /* size_t */
 
-/* logger */
-typedef int (*ecma_logger)(void *ctx, const char *fmt, ...);
-typedef struct {
-    int          level;   /* current logging level */
-    void        *ctx;     /* passed to logger */
-    ecma_logger  logger;  /* logger function */
-} ecma_log;
-
-/* logging context */
-typedef const ecma_log ecma_lc;
+#include "logger.h"
 
 /* ecma167 context */
 typedef struct {
-    ecma_lc *lc;
+    udf_lc *lc;
     /* TODO: allocation pool */
 } ecma_ctx;
 
