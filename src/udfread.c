@@ -207,9 +207,27 @@ struct udf_file_identifier {
     uint8_t         characteristic; /* CHAR_FLAG_* */
 };
 
-struct udf_dir {
+struct udf_dir_entries {
     uint32_t                     num_entries;
     struct udf_file_identifier  *files;
+};
+
+static void udf_clean_dir_entries(struct udf_dir_entries *p)
+{
+    if (p->files) {
+        uint32_t i;
+        for (i = 0; i < p->num_entries; i++) {
+            free(p->files[i].filename);
+        }
+        free(p->files);
+        p->files = NULL;
+    }
+
+    p->num_entries = 0;
+}
+
+struct udf_dir {
+    struct udf_dir_entries       entries;
     struct udf_dir             **subdirs;
 };
 
@@ -219,7 +237,7 @@ static void _clean_tree(struct udf_dir *p)
         uint32_t i;
 
         if (p->subdirs) {
-            for (i = 0; i < p->num_entries; i++) {
+            for (i = 0; i < p->entries.num_entries; i++) {
                 _clean_tree(p->subdirs[i]);
                 free(p->subdirs[i]);
                 p->subdirs[i] = NULL;
@@ -228,15 +246,7 @@ static void _clean_tree(struct udf_dir *p)
             p->subdirs = NULL;
         }
 
-        if (p->files) {
-            for (i = 0; i < p->num_entries; i++) {
-                free(p->files[i].filename);
-            }
-            free(p->files);
-            p->files = NULL;
-        }
-
-        p->num_entries = 0;
+        udf_clean_dir_entries(&p->entries);
     }
 }
 
@@ -538,7 +548,7 @@ static struct file_entry *_read_file_entry(udfread *udf,
     return fe;
 }
 
-static int _parse_dir(ecma_ctx *ecma, const uint8_t *data, uint32_t length, struct udf_dir *dir)
+static int _parse_dir(ecma_ctx *ecma, const uint8_t *data, uint32_t length, struct udf_dir_entries *dir)
 {
     struct file_identifier fid;
     const uint8_t *p   = data;
@@ -605,7 +615,7 @@ static int _parse_dir(ecma_ctx *ecma, const uint8_t *data, uint32_t length, stru
     return 0;
 }
 
-static int _read_dir_file(udfread *udf, const struct long_ad *loc, struct udf_dir *dir)
+static int _read_dir_file(udfread *udf, const struct long_ad *loc, struct udf_dir_entries *dir)
 {
     int             result;
     uint8_t        *data;
@@ -625,7 +635,7 @@ static int _read_dir_file(udfread *udf, const struct long_ad *loc, struct udf_di
     return result;
 }
 
-static int _read_dir(udfread *udf, const struct long_ad *icb, struct udf_dir *dir)
+static int udf_read_dir(udfread *udf, const struct long_ad *icb, struct udf_dir_entries *dir)
 {
     struct file_entry *fe;
     int                result;
@@ -697,12 +707,12 @@ static int _find_root_dir(udfread *udf, const struct long_ad *fsd_loc,
 
 static struct udf_dir *_read_subdir(udfread *udf, struct udf_dir *dir, uint32_t index)
 {
-    if (!(dir->files[index].characteristic & CHAR_FLAG_DIR)) {
+    if (!(dir->entries.files[index].characteristic & CHAR_FLAG_DIR)) {
         return NULL;
     }
 
     if (!dir->subdirs) {
-        struct udf_dir **subdirs = (struct udf_dir **)calloc(dir->num_entries, sizeof(struct udf_dir *));
+        struct udf_dir **subdirs = (struct udf_dir **)calloc(dir->entries.num_entries, sizeof(struct udf_dir *));
         if (!subdirs) {
             udf_error("out of memory\n");
             return NULL;
@@ -718,13 +728,13 @@ static struct udf_dir *_read_subdir(udfread *udf, struct udf_dir *dir, uint32_t 
             udf_error("out of memory\n");
             return NULL;
         }
-        if (_read_dir(udf, &dir->files[index].icb, subdir) < 0) {
-            _clean_tree(subdir);
+        if (udf_read_dir(udf, &dir->entries.files[index].icb, &subdir->entries) < 0) {
+            udf_clean_dir_entries(&subdir->entries);
             free(subdir);
             return NULL;
         }
         if (!atomic_pointer_compare_and_exchange(&dir->subdirs[index], NULL, subdir)) {
-            _clean_tree(subdir);
+            udf_clean_dir_entries(&subdir->entries);
             free(subdir);
         }
     }
@@ -732,7 +742,7 @@ static struct udf_dir *_read_subdir(udfread *udf, struct udf_dir *dir, uint32_t 
     return dir->subdirs[index];
 }
 
-static int _scan_dir(const struct udf_dir *dir, const char *filename, uint32_t *index)
+static int _scan_dir(const struct udf_dir_entries *dir, const char *filename, uint32_t *index)
 {
     uint32_t i;
 
@@ -769,11 +779,11 @@ static int _find_file(udfread *udf, const char *path,
 
     while (token) {
         uint32_t index;
-        if (_scan_dir(current_dir, token, &index) < 0) {
+        if (_scan_dir(&current_dir->entries, token, &index) < 0) {
             udf_log("_find_file: entry %s not found\n", token);
             goto error;
         }
-        fid = &current_dir->files[index];
+        fid = &current_dir->entries.files[index];
 
         token = strtok_r(NULL, "/\\", &save_ptr);
 
@@ -860,7 +870,7 @@ int udfread_open_input(udfread *udf, udfread_block_input *input/*, int partition
     }
 
     /* Read root directory */
-    if (_read_dir(udf, &fsd.root_icb, &udf->root_dir) < 0) {
+    if (udf_read_dir(udf, &fsd.root_icb, &udf->root_dir.entries) < 0) {
         _clean_tree(&udf->root_dir);
         udf->input = NULL;
         return -1;
@@ -980,7 +990,7 @@ UDFDIR *udfread_opendir_at(UDFDIR *p, const char *name)
         return NULL;
     }
 
-    if (_scan_dir(p->dir, name, &index) < 0) {
+    if (_scan_dir(&p->dir->entries, name, &index) < 0) {
         udf_log("udfread_opendir_at: entry %s not found\n", name);
         return NULL;
     }
@@ -998,11 +1008,11 @@ struct udfread_dirent *udfread_readdir(UDFDIR *p, struct udfread_dirent *entry)
         return NULL;
     }
 
-    if (p->current_file >= p->dir->num_entries) {
+    if (p->current_file >= p->dir->entries.num_entries) {
         return NULL;
     }
 
-    fi = &p->dir->files[p->current_file];
+    fi = &p->dir->entries.files[p->current_file];
 
     entry->d_name = fi->filename;
 
@@ -1100,12 +1110,12 @@ UDFFILE *udfread_file_openat(UDFDIR *dir, const char *name)
         return NULL;
     }
 
-    if (_scan_dir(dir->dir, name, &index) < 0) {
+    if (_scan_dir(&dir->dir->entries, name, &index) < 0) {
         udf_log("udfread_file_openat: entry %s not found\n", name);
         return NULL;
     }
 
-    return _file_open(dir->udf, name, &dir->dir->files[index]);
+    return _file_open(dir->udf, name, &dir->dir->entries.files[index]);
 }
 
 int64_t udfread_file_size(UDFFILE *p)
