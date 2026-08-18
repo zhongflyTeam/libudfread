@@ -213,17 +213,19 @@ struct udf_dir {
     struct udf_dir             **subdirs;
 };
 
-static void _free_dir(struct udf_dir **pp)
+static void _clean_tree(struct udf_dir *p)
 {
-    if (pp && *pp) {
-        struct udf_dir *p = *pp;
+    if (p) {
         uint32_t i;
 
         if (p->subdirs) {
             for (i = 0; i < p->num_entries; i++) {
-                _free_dir(&(p->subdirs[i]));
+                _clean_tree(p->subdirs[i]);
+                free(p->subdirs[i]);
+                p->subdirs[i] = NULL;
             }
             free(p->subdirs);
+            p->subdirs = NULL;
         }
 
         if (p->files) {
@@ -231,11 +233,10 @@ static void _free_dir(struct udf_dir **pp)
                 free(p->files[i].filename);
             }
             free(p->files);
+            p->files = NULL;
         }
 
-        free(p);
-
-        *pp = NULL;
+        p->num_entries = 0;
     }
 }
 
@@ -255,7 +256,7 @@ struct udfread {
     struct udf_partitions part;
 
     /* cached directory tree */
-    struct udf_dir *root_dir;
+    struct udf_dir root_dir;
 
     char *volume_identifier;
     char volume_set_identifier[128];
@@ -718,11 +719,13 @@ static struct udf_dir *_read_subdir(udfread *udf, struct udf_dir *dir, uint32_t 
             return NULL;
         }
         if (_read_dir(udf, &dir->files[index].icb, subdir) < 0) {
-            _free_dir(&subdir);
+            _clean_tree(subdir);
+            free(subdir);
             return NULL;
         }
         if (!atomic_pointer_compare_and_exchange(&dir->subdirs[index], NULL, subdir)) {
-            _free_dir(&subdir);
+            _clean_tree(subdir);
+            free(subdir);
         }
     }
 
@@ -752,10 +755,7 @@ static int _find_file(udfread *udf, const char *path,
     struct udf_dir *current_dir;
     char *tmp_path, *save_ptr, *token;
 
-    current_dir = udf->root_dir;
-    if (!current_dir) {
-        return -1;
-    }
+    current_dir = &udf->root_dir;
 
     tmp_path = _str_dup(path);
     if (!tmp_path) {
@@ -860,14 +860,8 @@ int udfread_open_input(udfread *udf, udfread_block_input *input/*, int partition
     }
 
     /* Read root directory */
-    udf->root_dir = (struct udf_dir *)calloc(1, sizeof(struct udf_dir));
-    if (!udf->root_dir) {
-        udf_error("out of memory\n");
-        udf->input = NULL;
-        return -1;
-    }
-    if (_read_dir(udf, &fsd.root_icb, udf->root_dir) < 0) {
-        _free_dir(&udf->root_dir);
+    if (_read_dir(udf, &fsd.root_icb, &udf->root_dir) < 0) {
+        _clean_tree(&udf->root_dir);
         udf->input = NULL;
         return -1;
     }
@@ -909,7 +903,7 @@ void udfread_close(udfread *udf)
             udf->input = NULL;
         }
 
-        _free_dir(&udf->root_dir);
+        _clean_tree(&udf->root_dir);
         free(udf->volume_identifier);
         free(udf);
     }
