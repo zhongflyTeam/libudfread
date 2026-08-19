@@ -6,6 +6,7 @@ libudfread_src = [
     'default_blockinput.c',
     'ecma167.c',
     'udf_volume.c',
+    'udf_fs.c',
     'udfread.c',
     'udfread-version.c',
 ]

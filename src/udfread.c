@@ -33,6 +33,7 @@
 #include "default_blockinput.h"
 #include "ecma167.h"
 #include "udf_volume.h"
+#include "udf_fs.h"
 #include "udf_atomic.h"
 
 #include <stdint.h>
@@ -73,100 +74,6 @@ static char *_str_dup(const char *s)
     return p;
 }
 
-static void *_safe_realloc(void *p, size_t s)
-{
-    void *result = realloc(p, s);
-    if (!result) {
-        udf_error("out of memory\n");
-        free(p);
-    }
-    return result;
-}
-
-
-/*
- * Decoding
- */
-
-/*
- * outputs Modified UTF-8 (MUTF-8).
- * The null character (U+0000) uses the two-byte overlong encoding 11000000 10000000 (hexadecimal C0 80), instead of 00000000 (hexadecimal 00).
- *
- * - not strictly UTF-8 compilant, but works with C str*() functions and Java, while \0 bytes in middle of strings won't.
- */
-
-#define utf16lo_to_mutf8(out, out_pos, out_size, ch)    \
-  do {                                              \
-    if (ch != 0 && ch < 0x80) {                     \
-      out[out_pos++] = (uint8_t)ch;                 \
-    } else {                                        \
-      out_size++;                                   \
-      out = (uint8_t *)_safe_realloc(out, out_size);\
-      if (!out) return NULL;                        \
-                                                    \
-      out[out_pos++] = 0xc0 | (ch >> 6);            \
-      out[out_pos++] = 0x80 | (ch & 0x3f);          \
-    }                                               \
-  } while (0)
-
-#define utf16_to_mutf8(out, out_pos, out_size, ch)      \
-  do {                                                  \
-    if (ch < 0x7ff) {                                   \
-      utf16lo_to_mutf8(out, out_pos, out_size, ch);     \
-    } else {                                            \
-      out_size += 2;                                    \
-      out = (uint8_t *)_safe_realloc(out, out_size);    \
-      if (!out) return NULL;                            \
-                                                        \
-      out[out_pos++] = 0xe0 | (ch >> 12);               \
-      out[out_pos++] = 0x80 | ((ch >> 6) & 0x3f);       \
-      out[out_pos++] = 0x80 | (ch & 0x3f);              \
-                                                        \
-    }                                                   \
-  } while (0)
-
-/* Strings, CS0 (UDF 2.1.1) */
-static char *_cs0_to_mutf8(const uint8_t *cs0, size_t size)
-{
-    size_t   out_pos = 0;
-    size_t   out_size = size;
-    size_t   i;
-    uint8_t *out;
-
-    if (size < 1) {
-        /* empty string */
-        return calloc(1, 1);
-    }
-
-    out = (uint8_t *)malloc(size);
-    if (!out) {
-        udf_error("out of memory\n");
-        return NULL;
-    }
-
-    switch (cs0[0]) {
-    case 8:
-        /*udf_trace("string in utf-8\n");*/
-        for (i = 1; i < size; i++) {
-            utf16lo_to_mutf8(out, out_pos, out_size, cs0[i]);
-        }
-        break;
-    case 16:
-        for (i = 1; i < size - 1; i+=2) {
-            uint16_t ch = cs0[i + 1] | (cs0[i] << 8);
-            utf16_to_mutf8(out, out_pos, out_size, ch);
-        }
-        break;
-    default:
-        udf_error("unregonized string encoding %u\n", cs0[0]);
-        free(out);
-        return NULL;
-    }
-
-    out[out_pos] = 0;
-    return (char*)out;
-}
-
 /*
  * Block access
  *
@@ -188,43 +95,9 @@ static uint32_t _read_blocks(udfread_block_input *input,
     return result < 0 ? 0 : (uint32_t)result;
 }
 
-static int _read_descriptor_block(udfread_block_input *input, uint32_t lba, uint8_t *buf)
-{
-    if (_read_blocks(input, lba, buf, 1, 0) == 1) {
-        return decode_descriptor_tag(buf);
-    }
-
-    return -1;
-}
-
 /*
  * Cached directory data
  */
-
-struct udf_file_identifier {
-    char           *filename;       /* MUTF-8 */
-    struct long_ad  icb;            /* location of file entry */
-    uint8_t         characteristic; /* CHAR_FLAG_* */
-};
-
-struct udf_dir_entries {
-    uint32_t                     num_entries;
-    struct udf_file_identifier  *files;
-};
-
-static void udf_clean_dir_entries(struct udf_dir_entries *p)
-{
-    if (p->files) {
-        uint32_t i;
-        for (i = 0; i < p->num_entries; i++) {
-            free(p->files[i].filename);
-        }
-        free(p->files);
-        p->files = NULL;
-    }
-
-    p->num_entries = 0;
-}
 
 struct udf_dir {
     struct udf_dir_entries       entries;
@@ -257,13 +130,9 @@ static void _clean_tree(struct udf_dir *p)
 
 struct udfread {
 
-    udfread_block_input *input;
+    struct udf_fs fs;
 
-    ecma_ctx ecma;
     udf_log  lc_storage;
-
-    /* Volume partitions */
-    struct udf_partitions part;
 
     /* cached directory tree */
     struct udf_dir root_dir;
@@ -307,14 +176,14 @@ udfread *udfread_init(void)
     }
     udf->lc_storage.ctx    = stderr;
     udf->lc_storage.logger = (udf_logger)fprintf;
-    udf->ecma.lc = &udf->lc_storage;
+    udf->fs.ecma.lc = &udf->lc_storage;
 
     return udf;
 }
 
 int udfread_set_log (udfread *udf, void *ctx, int (*logger)(void *ctx, const char *fmt, ...) )
 {
-    if (!udf || udf->input) {
+    if (!udf || udf->fs.input) {
         /*
          * Changing the handler requires updating both ctx and logger
          * function atomically; with the image open this would need
@@ -348,7 +217,7 @@ int udfread_set_log_level (udfread *udf, int level)
     }
 
     if (level <= UDFREAD_LOG_NONE) {
-        udf->ecma.lc = NULL;
+        udf->fs.ecma.lc = NULL;
     } else {
         udf->lc_storage.level = level;
         /*
@@ -357,7 +226,7 @@ int udfread_set_log_level (udfread *udf, int level)
          * the published struct is always fully initialized because its
          * ctx/logger fields cannot change after open.
          */
-        udf->ecma.lc = &udf->lc_storage;
+        udf->fs.ecma.lc = &udf->lc_storage;
     }
 
     return 0;
@@ -368,7 +237,7 @@ int udfread_select_partition (udfread *udf, int partition)
     if (!udf) {
         return -1;
     }
-    if (udf->input) {
+    if (udf->fs.input) {
         /* already open */
         return -1;
     }
@@ -381,331 +250,10 @@ int udfread_select_partition (udfread *udf, int partition)
 }
 
 /*
- * Metadata
+ * directory cache
  */
 
-static int _partition_index(udfread *udf, uint16_t partition_number)
-{
-    if (partition_number == udf->part.p[0].number) {
-        return 0;
-    } else if (udf->part.num_partition > 1 && partition_number == udf->part.p[1].number) {
-        return 1;
-    }
-
-    udf_error("unknown partition %u\n", partition_number);
-    return -1;
-}
-
-/* read metadata blocks. If read fails, try from mirror (if available). */
-static int _read_metadata_blocks(udfread *udf, uint8_t *buf,
-                                const struct long_ad *loc)
-{
-    int      tag_id;
-    uint32_t lba, i, got;
-    int      part_idx;
-
-    udf_trace("reading metadata from part %u lba %u\n", loc->partition, loc->lba);
-
-    part_idx = _partition_index(udf, loc->partition);
-    if (part_idx < 0) {
-        return -1;
-    }
-
-    /* read first block. Parse and check tag. */
-
-    lba    = udf->part.p[part_idx].lba + loc->lba;
-    tag_id = _read_descriptor_block(udf->input, lba, buf);
-
-    if (tag_id < 0) {
-
-        /* try mirror */
-        if (udf->part.p[part_idx].mirror_lba) {
-            udf_log("read metadata from lba %u failed, trying mirror\n", lba);
-            lba    = udf->part.p[part_idx].mirror_lba + loc->lba;
-            tag_id = _read_descriptor_block(udf->input, lba, buf);
-        }
-
-        if (tag_id < 0) {
-            udf_error("read metadata from lba %u failed\n", lba);
-            return -1;
-        }
-    }
-
-    /* read following blocks without tag parsing and checksum validation */
-
-    for (i = 1; i <= (loc->length - 1) / UDF_BLOCK_SIZE; i++) {
-
-        lba  = udf->part.p[part_idx].lba + loc->lba + i;
-        buf += UDF_BLOCK_SIZE;
-
-        got = _read_blocks(udf->input, lba, buf, 1, 0);
-        if (got != 1) {
-            if (udf->part.p[part_idx].mirror_lba) {
-                udf_log("read metadata from lba %u failed, trying mirror\n", lba);
-                lba = udf->part.p[part_idx].mirror_lba + loc->lba + i;
-                got = _read_blocks(udf->input, lba, buf, 1, 0);
-            }
-            if (got != 1) {
-                udf_error("read metadata from lba %u failed\n", lba);
-                return -1;
-            }
-        }
-    }
-
-    return tag_id;
-}
-
-static uint8_t *_read_metadata(udfread *udf, const struct long_ad *icb, int *tag_id)
-{
-    uint32_t  num_blocks = (icb->length + UDF_BLOCK_SIZE - 1) / UDF_BLOCK_SIZE;
-    uint8_t  *buf;
-
-    if (num_blocks < 1) {
-        return NULL;
-    }
-
-    buf = (uint8_t *)malloc(num_blocks * UDF_BLOCK_SIZE);
-    if (!buf) {
-        udf_error("out of memory\n");
-        return NULL;
-    }
-
-    *tag_id = _read_metadata_blocks(udf, buf, icb);
-    if (*tag_id < 0) {
-        udf_log("reading icb blocks failed\n");
-        free(buf);
-        return NULL;
-    }
-
-    return buf;
-}
-
-static struct file_entry *_read_file_entry(udfread *udf,
-                                           const struct long_ad *icb)
-{
-    struct file_entry *fe = NULL;
-    uint8_t  *buf;
-    int       tag_id;
-
-    udf_trace("file entry size %u bytes\n", icb->length);
-
-    buf = _read_metadata(udf, icb, &tag_id);
-    if (!buf) {
-        udf_error("reading file entry failed\n");
-        return NULL;
-    }
-
-    switch (tag_id) {
-        case ECMA_FileEntry:
-            fe = decode_file_entry(&udf->ecma, buf, UDF_BLOCK_SIZE, icb->partition);
-            break;
-        case ECMA_ExtendedFileEntry:
-            fe = decode_ext_file_entry(&udf->ecma, buf, UDF_BLOCK_SIZE, icb->partition);
-            break;
-        default:
-            udf_error("_read_file_entry: unknown tag %d\n", tag_id);
-            break;
-    }
-
-    free(buf);
-
-    /* read possible additional allocation extents */
-    if (fe && !fe->content_inline) {
-        while (fe->u.ads.num_ad > 0 &&
-               fe->u.ads.ad[fe->u.ads.num_ad - 1].extent_type == ECMA_AD_EXTENT_AD) {
-
-            /* drop pointer to this extent from the end of AD list */
-            fe->u.ads.num_ad--;
-
-            icb = &fe->u.ads.ad[fe->u.ads.num_ad];
-            udf_log("_read_file_entry: reading allocation extent @%u\n", icb->lba);
-
-            buf = _read_metadata(udf, icb, &tag_id);
-            if (!buf) {
-                udf_error("_read_file_entry: reading allocation extent @%u failed\n", icb->lba);
-                break;
-            }
-
-            if (tag_id != ECMA_AllocationExtentDescriptor) {
-                free(buf);
-                udf_error("_read_file_entry: unexpected tag %d (expected ECMA_AllocationExtentDescriptor)\n", tag_id);
-                break;
-            }
-
-            if (decode_allocation_extent(&udf->ecma, &fe, buf, icb->length, icb->partition) < 0) {
-                free(buf);
-                udf_error("_read_file_entry: decode_allocation_extent() failed\n");
-                break;
-            }
-
-            /* failure before this point will cause an error when reading the file past extent point.
-               (extent ad is left in file ad list). */
-
-            free(buf);
-        }
-    }
-
-    return fe;
-}
-
-static int _parse_dir(ecma_ctx *ecma, const uint8_t *data, uint32_t length, struct udf_dir_entries *dir)
-{
-    struct file_identifier fid;
-    const uint8_t *p   = data;
-    const uint8_t *end = data + length;
-    int            tag_id;
-
-    if (length < 16) {
-        return 0;
-    }
-
-    while (p < end - 16) {
-        size_t used;
-
-        if (dir->num_entries == UINT32_MAX) {
-            return 0;
-        }
-
-        tag_id = decode_descriptor_tag(p);
-        if (tag_id != ECMA_FileIdentifierDescriptor) {
-            udf_error("unexpected tag %d in directory file\n", tag_id);
-            return -1;
-        }
-
-        dir->files = (struct udf_file_identifier *)_safe_realloc(dir->files, sizeof(dir->files[0]) * (dir->num_entries + 1));
-        if (!dir->files) {
-            return -1;
-        }
-
-        used = decode_file_identifier(ecma, p, (size_t)(end - p), &fid);
-        if (used == 0) {
-            /* not enough data. keep the entries we already have. */
-            break;
-        }
-        p += used;
-
-        if (fid.characteristic & CHAR_FLAG_PARENT) {
-            continue;
-        }
-        if (fid.filename_len < 1) {
-            continue;
-        }
-
-        dir->files[dir->num_entries].characteristic = fid.characteristic;
-        dir->files[dir->num_entries].icb = fid.icb;
-        dir->files[dir->num_entries].filename = _cs0_to_mutf8(fid.filename, fid.filename_len);
-
-        if (!dir->files[dir->num_entries].filename) {
-            continue;
-        }
-
-        /* Skip empty file identifiers.
-         * Not strictly compilant (?), \0 is allowed in
-         * ECMA167 file identifier.
-         */
-        if (!dir->files[dir->num_entries].filename[0]) {
-            udf_error("skipping empty file identifier\n");
-            free(dir->files[dir->num_entries].filename);
-            continue;
-        }
-
-        dir->num_entries++;
-    }
-
-    return 0;
-}
-
-static int _read_dir_file(udfread *udf, const struct long_ad *loc, struct udf_dir_entries *dir)
-{
-    int             result;
-    uint8_t        *data;
-    int             tag_id;
-
-    udf_trace("directory size %u bytes\n", loc->length);
-
-    data = _read_metadata(udf, loc, &tag_id);
-    if (!data) {
-        udf_error("reading directory file failed\n");
-        return -1;
-    }
-
-    result = _parse_dir(&udf->ecma, data, loc->length, dir);
-
-    free(data);
-    return result;
-}
-
-static int udf_read_dir(udfread *udf, const struct long_ad *icb, struct udf_dir_entries *dir)
-{
-    struct file_entry *fe;
-    int                result;
-
-    fe = _read_file_entry(udf, icb);
-    if (!fe) {
-        udf_error("error reading directory file entry\n");
-        return -1;
-    }
-
-    if (fe->file_type != ECMA_FT_DIR) {
-        udf_error("directory file type is not directory\n");
-        free_file_entry(&fe);
-        return -1;
-    }
-
-    if (fe->content_inline) {
-        result = _parse_dir(&udf->ecma, &fe->u.data.content[0], fe->u.data.information_length, dir);
-        if (result < 0 ) {
-                udf_error("failed parsing inline directory file\n");
-        }
-    } else if (fe->u.ads.num_ad == 0) {
-        udf_error("empty directory file");
-        result = -1;
-    } else {
-        if (fe->u.ads.num_ad > 1) {
-            udf_error("unsupported fragmented directory file\n");
-        }
-        result = _read_dir_file(udf, &fe->u.ads.ad[0], dir);
-    }
-
-    free_file_entry(&fe);
-    return result;
-}
-
-static int _find_root_dir(udfread *udf, const struct long_ad *fsd_loc,
-                          struct file_set_descriptor *fsd)
-{
-    uint8_t             buf[UDF_BLOCK_SIZE];
-    int                 tag_id = -1;
-    struct long_ad      loc = *fsd_loc;
-
-    udf_trace("reading root directory fsd from part %u lba %u\n", fsd_loc->partition, fsd_loc->lba);
-
-    /* search for File Set Descriptor from the area described by fsd_loc */
-
-    loc.length = UDF_BLOCK_SIZE;
-    for (; loc.lba <= fsd_loc->lba + (fsd_loc->length - 1) / UDF_BLOCK_SIZE; loc.lba++) {
-
-        tag_id = _read_metadata_blocks(udf, buf, &loc);
-        if (tag_id == ECMA_FileSetDescriptor) {
-            break;
-        }
-        if (tag_id == ECMA_TerminatingDescriptor) {
-            break;
-        }
-        udf_error("unhandled tag %d in File Set Descriptor area\n", tag_id);
-    }
-    if (tag_id != ECMA_FileSetDescriptor) {
-        udf_error("didn't find File Set Descriptor\n");
-        return -1;
-    }
-
-    decode_file_set_descriptor(buf, fsd);
-    udf_log("root directory in part %u lba %u\n", fsd->root_icb.partition, fsd->root_icb.lba);
-
-    return 0;
-}
-
-static struct udf_dir *_read_subdir(udfread *udf, struct udf_dir *dir, uint32_t index)
+static struct udf_dir *_cache_subdir(udfread *udf, struct udf_dir *dir, uint32_t index)
 {
     if (!(dir->entries.files[index].characteristic & CHAR_FLAG_DIR)) {
         return NULL;
@@ -728,7 +276,7 @@ static struct udf_dir *_read_subdir(udfread *udf, struct udf_dir *dir, uint32_t 
             udf_error("out of memory\n");
             return NULL;
         }
-        if (udf_read_dir(udf, &dir->entries.files[index].icb, &subdir->entries) < 0) {
+        if (udf_read_dir(&udf->fs, &dir->entries.files[index].icb, &subdir->entries) < 0) {
             udf_clean_dir_entries(&subdir->entries);
             free(subdir);
             return NULL;
@@ -753,10 +301,12 @@ static int _scan_dir(const struct udf_dir_entries *dir, const char *filename, ui
         }
     }
 
-    udf_log("file %s not found\n", filename);
     return -1;
 }
 
+/*
+ * helper to traverse paths. Can't be used with files/dirs where name contains '/' or '\\'.
+ */
 static int _find_file(udfread *udf, const char *path,
                       struct udf_dir **p_dir,
                       const struct udf_file_identifier **p_fid)
@@ -788,7 +338,7 @@ static int _find_file(udfread *udf, const char *path,
         token = strtok_r(NULL, "/\\", &save_ptr);
 
         if (fid->characteristic & CHAR_FLAG_DIR) {
-            current_dir = _read_subdir(udf, current_dir, index);
+            current_dir = _cache_subdir(udf, current_dir, index);
             if (!current_dir) {
                 goto error;
             }
@@ -835,22 +385,22 @@ int udfread_open_input(udfread *udf, udfread_block_input *input/*, int partition
         return -1;
     }
 
-    if (udf_probe_volume(&udf->ecma, input) < 0) {
+    if (udf_probe_volume(&udf->fs.ecma, input) < 0) {
         return -1;
     }
 
     /* read Volume Descriptor Sequence */
-    if (udf_read_vds(&udf->ecma, input, udf->partition_to_open, &vds) < 0) {
+    if (udf_read_vds(&udf->fs.ecma, input, udf->partition_to_open, &vds) < 0) {
         return -1;
     }
 
     /* validate logical volume structure */
-    if (udf_validate_logical_volume(&udf->ecma, &vds.lvd, &fsd_location) < 0) {
+    if (udf_validate_logical_volume(&udf->fs.ecma, &vds.lvd, &fsd_location) < 0) {
         return -1;
     }
 
     /* Volume Identifier. CS0, UDF 2.1.1 */
-    udf->volume_identifier = _cs0_to_mutf8(vds.pvd.volume_identifier, vds.pvd.volume_identifier_length);
+    udf->volume_identifier = udf_cs0_to_mutf8(vds.pvd.volume_identifier, vds.pvd.volume_identifier_length);
     if (udf->volume_identifier) {
         udf_log("Volume Identifier: %s\n", udf->volume_identifier);
     }
@@ -858,21 +408,22 @@ int udfread_open_input(udfread *udf, udfread_block_input *input/*, int partition
     memcpy(udf->volume_set_identifier, vds.pvd.volume_set_identifier, 128);
 
     /* map partitions */
-    if (udf_parse_partition_maps(&udf->ecma, input, &vds, &udf->part) < 0) {
+    if (udf_parse_partition_maps(&udf->fs.ecma, input, &vds, &udf->fs.part) < 0) {
         return -1;
     }
 
+    udf->fs.input = input;
+
     /* Search for root directory from location given in File Set Descriptor */
-    udf->input = input;
-    if (_find_root_dir(udf, &fsd_location, &fsd) < 0) {
-        udf->input = NULL;
+    if (udf_find_root_dir(&udf->fs, &fsd_location, &fsd) < 0) {
+        udf->fs.input = NULL;
         return -1;
     }
 
     /* Read root directory */
-    if (udf_read_dir(udf, &fsd.root_icb, &udf->root_dir.entries) < 0) {
-        _clean_tree(&udf->root_dir);
-        udf->input = NULL;
+    if (udf_read_dir(&udf->fs, &fsd.root_icb, &udf->root_dir.entries) < 0) {
+        udf_error("error reading root directory\n");
+        udf->fs.input = NULL;
         return -1;
     }
 
@@ -906,11 +457,11 @@ int udfread_open(udfread *udf, const char *path)
 void udfread_close(udfread *udf)
 {
     if (udf) {
-        if (udf->input) {
-            if (udf->input->close) {
-                udf->input->close(udf->input);
+        if (udf->fs.input) {
+            if (udf->fs.input->close) {
+                udf->fs.input->close(udf->fs.input);
             }
-            udf->input = NULL;
+            udf->fs.input = NULL;
         }
 
         _clean_tree(&udf->root_dir);
@@ -970,7 +521,7 @@ UDFDIR *udfread_opendir(udfread *udf, const char *path)
 {
     struct udf_dir *dir = NULL;
 
-    if (!udf || !udf->input || !path) {
+    if (!udf || !udf->fs.input || !path) {
         return NULL;
     }
 
@@ -983,19 +534,21 @@ UDFDIR *udfread_opendir(udfread *udf, const char *path)
 
 UDFDIR *udfread_opendir_at(UDFDIR *p, const char *name)
 {
+    udfread *udf;
     struct udf_dir *dir = NULL;
     uint32_t index;
 
     if (!p || !name) {
         return NULL;
     }
+    udf = p->udf;
 
     if (_scan_dir(&p->dir->entries, name, &index) < 0) {
         udf_log("udfread_opendir_at: entry %s not found\n", name);
         return NULL;
     }
 
-    dir = _read_subdir(p->udf, p->dir, index);
+    dir = _cache_subdir(udf, p->dir, index);
 
     return _new_udfdir(p->udf, dir);
 }
@@ -1069,7 +622,7 @@ static UDFFILE *_file_open(udfread *udf, const char *path, const struct udf_file
         return NULL;
     }
 
-    fe = _read_file_entry(udf, &fi->icb);
+    fe = udf_read_file_entry(&udf->fs, &fi->icb);
     if (!fe) {
         udf_error("error reading file entry for %s\n", path);
         return NULL;
@@ -1091,7 +644,7 @@ UDFFILE *udfread_file_open(udfread *udf, const char *path)
 {
     const struct udf_file_identifier *fi = NULL;
 
-    if (!udf || !udf->input || !path) {
+    if (!udf || !udf->fs.input || !path) {
         return NULL;
     }
 
@@ -1141,6 +694,7 @@ void udfread_file_close(UDFFILE *p)
 
 static uint32_t _file_lba(UDFFILE *p, uint32_t file_block, uint32_t *extent_length)
 {
+    udfread *udf = p->udf;
     const struct file_entry *fe;
     unsigned int i;
     uint32_t     ad_size;
@@ -1164,14 +718,14 @@ static uint32_t _file_lba(UDFFILE *p, uint32_t file_block, uint32_t *extent_leng
                 return 0;
             }
 
-            if (ad[i].partition != p->udf->part.p[0].number) {
-                udf_error("file partition %u != %u\n", ad[i].partition, p->udf->part.p[0].number);
+            if (ad[i].partition != udf->fs.part.p[0].number) {
+                udf_error("file partition %u != %u\n", ad[i].partition, udf->fs.part.p[0].number);
             }
 
             if (extent_length) {
                 *extent_length = ad_size - file_block;
             }
-            return p->udf->part.p[0].lba + ad[i].lba + file_block;
+            return udf->fs.part.p[0].lba + ad[i].lba + file_block;
         }
 
         file_block -= ad_size;
@@ -1205,6 +759,7 @@ uint32_t udfread_file_lba(UDFFILE *p, uint32_t file_block)
 
 uint32_t udfread_read_blocks(UDFFILE *p, void *buf, uint32_t file_block, uint32_t num_blocks, int flags)
 {
+    udfread *udf = p->udf;
     uint32_t i;
 
     if (!num_blocks || !buf) {
@@ -1240,7 +795,7 @@ uint32_t udfread_read_blocks(UDFFILE *p, void *buf, uint32_t file_block, uint32_
             extent_length = num_blocks - i;
         }
 
-        extent_length = _read_blocks(p->udf->input, lba, block, extent_length, flags);
+        extent_length = _read_blocks(udf->fs.input, lba, block, extent_length, flags);
         if (extent_length < 1) {
             break;
         }
