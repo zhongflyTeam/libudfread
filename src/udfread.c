@@ -39,24 +39,16 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h> /* default logger */
 
 #ifdef _WIN32
 #define strtok_r strtok_s
 #endif
 
 
-/*
- * Logging
- */
-
-#include <stdio.h>
-
-static int enable_log   = 0;
-static int enable_trace = 0;
-
-#define udf_error(...)   do {                   fprintf(stderr, "udfread ERROR: " __VA_ARGS__); } while (0)
-#define udf_log(...)     do { if (enable_log)   fprintf(stderr, "udfread LOG  : " __VA_ARGS__); } while (0)
-#define udf_trace(...)   do { if (enable_trace) fprintf(stderr, "udfread TRACE: " __VA_ARGS__); } while (0)
+#define udf_error(...)   udf_log_msg(udf->fs.ecma.lc, UDFREAD_LOG_ERROR, "udfread ERROR: ", __VA_ARGS__)
+#define udf_log(...)     udf_log_msg(udf->fs.ecma.lc, UDFREAD_LOG_INFO,  "udfread LOG  : ", __VA_ARGS__)
+#define udf_trace(...)   udf_log_msg(udf->fs.ecma.lc, UDFREAD_LOG_TRACE, "udfread TRACE: ", __VA_ARGS__)
 
 /*
  * utils
@@ -68,8 +60,6 @@ static char *_str_dup(const char *s)
     char *p = (char *)malloc(len + 1);
     if (p) {
         memcpy(p, s, len + 1);
-    } else {
-        udf_error("out of memory\n");
     }
     return p;
 }
@@ -147,19 +137,6 @@ udfread *udfread_init(void)
 {
     udfread *udf;
 
-    /* set up logging */
-    if (getenv("UDFREAD_LOG")) {
-        enable_log = 1;
-    }
-    if (getenv("UDFREAD_TRACE")) {
-        enable_trace = 1;
-        enable_log = 1;
-    }
-
-#ifdef HAVE_UDFREAD_VERSION_H
-    udf_log("libudfread " UDFREAD_VERSION_STRING "\n");
-#endif
-
     udf = (udfread *)calloc(1, sizeof(udfread));
     if (!udf) {
         return NULL;
@@ -167,6 +144,7 @@ udfread *udfread_init(void)
 
     udf->partition_to_open = UDFREAD_PARTITION_FIRST;
 
+    /* set up logging */
     if (getenv("UDFREAD_TRACE")) {
         udf->lc_storage.level  = UDFREAD_LOG_TRACE;
     } else if (getenv("UDFREAD_LOG")) {
@@ -177,6 +155,10 @@ udfread *udfread_init(void)
     udf->lc_storage.ctx    = stderr;
     udf->lc_storage.logger = (udf_logger)fprintf;
     udf->fs.ecma.lc = &udf->lc_storage;
+
+#ifdef HAVE_UDFREAD_VERSION_H
+    udf_log("libudfread " UDFREAD_VERSION_STRING "\n");
+#endif
 
     return udf;
 }
@@ -319,6 +301,7 @@ static int _find_file(udfread *udf, const char *path,
 
     tmp_path = _str_dup(path);
     if (!tmp_path) {
+        udf_error("out of memory\n");
         return -1;
     }
 
@@ -657,18 +640,20 @@ UDFFILE *udfread_file_open(udfread *udf, const char *path)
 
 UDFFILE *udfread_file_openat(UDFDIR *dir, const char *name)
 {
+    udfread *udf;
     uint32_t index;
 
     if (!dir || !name) {
         return NULL;
     }
+    udf = dir->udf;
 
     if (_scan_dir(&dir->dir->entries, name, &index) < 0) {
         udf_log("udfread_file_openat: entry %s not found\n", name);
         return NULL;
     }
 
-    return _file_open(dir->udf, name, &dir->dir->entries.files[index]);
+    return _file_open(udf, name, &dir->dir->entries.files[index]);
 }
 
 int64_t udfread_file_size(UDFFILE *p)
@@ -734,23 +719,17 @@ static uint32_t _file_lba(UDFFILE *p, uint32_t file_block, uint32_t *extent_leng
     return 0;
 }
 
-static int _file_lba_exists(UDFFILE *p)
+uint32_t udfread_file_lba(UDFFILE *p, uint32_t file_block)
 {
+    udfread *udf;
+
     if (!p) {
         return 0;
     }
+    udf = p->udf;
 
     if (p->fe->content_inline) {
         udf_error("can't map lba for inline file\n");
-        return 0;
-    }
-
-    return 1;
-}
-
-uint32_t udfread_file_lba(UDFFILE *p, uint32_t file_block)
-{
-    if (!_file_lba_exists(p)) {
         return 0;
     }
 
@@ -759,14 +738,16 @@ uint32_t udfread_file_lba(UDFFILE *p, uint32_t file_block)
 
 uint32_t udfread_read_blocks(UDFFILE *p, void *buf, uint32_t file_block, uint32_t num_blocks, int flags)
 {
-    udfread *udf = p->udf;
+    udfread *udf;
     uint32_t i;
 
-    if (!num_blocks || !buf) {
+    if (!p || !num_blocks || !buf) {
         return 0;
     }
+    udf = p->udf;
 
-    if (!_file_lba_exists(p)) {
+    if (p->fe->content_inline) {
+        udf_error("can't read blocks from inline file\n");
         return 0;
     }
 
@@ -855,6 +836,7 @@ static ssize_t _read(UDFFILE *p, void *buf, size_t bytes)
 
 static ssize_t _read_inline(UDFFILE *p, void *buf, size_t bytes)
 {
+    udfread *udf = p->udf;
     uint64_t information_length = p->fe->u.data.information_length;
     size_t   pad_size = 0;
 
