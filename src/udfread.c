@@ -946,7 +946,7 @@ int64_t udfread_file_seek(UDFFILE *p, int64_t pos, int whence)
             return -1;
     }
 
-    if (pos >= 0 && pos <= udfread_file_size(p)) {
+    if (pos >= 0) {
         p->pos = (uint64_t)pos;
         p->block_valid = 0;
         return udfread_file_tell(p);
