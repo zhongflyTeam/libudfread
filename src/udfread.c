@@ -368,6 +368,11 @@ int udfread_open_input(udfread *udf, udfread_block_input *input/*, int partition
         return -1;
     }
 
+    if (udf->fs.input) {
+        /* already open */
+        return -1;
+    }
+
     if (udf_probe_volume(&udf->fs.ecma, input) < 0) {
         return -1;
     }
