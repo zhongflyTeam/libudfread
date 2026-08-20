@@ -463,7 +463,7 @@ const char *udfread_get_volume_id(udfread *udf)
 
 size_t udfread_get_volume_set_id (udfread *udf, void *buffer, size_t size)
 {
-    if (udf) {
+    if (udf && buffer) {
         if (size > sizeof(udf->volume_set_identifier)) {
             size = sizeof(udf->volume_set_identifier);
         }
