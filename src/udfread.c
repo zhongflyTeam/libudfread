@@ -418,7 +418,7 @@ int udfread_open(udfread *udf, const char *path)
     udfread_block_input *input;
     int result;
 
-    if (!udf || !path) {
+    if (!udf || !path || !*path) {
         return -1;
     }
 
@@ -504,7 +504,7 @@ UDFDIR *udfread_opendir(udfread *udf, const char *path)
 {
     struct udf_dir *dir = NULL;
 
-    if (!udf || !udf->fs.input || !path) {
+    if (!udf || !udf->fs.input || !path || !*path) {
         return NULL;
     }
 
@@ -521,7 +521,7 @@ UDFDIR *udfread_opendir_at(UDFDIR *p, const char *name)
     struct udf_dir *dir = NULL;
     uint32_t index;
 
-    if (!p || !name) {
+    if (!p || !name || !*name) {
         return NULL;
     }
     udf = p->udf;
@@ -643,7 +643,7 @@ UDFFILE *udfread_file_openat(UDFDIR *dir, const char *name)
     udfread *udf;
     uint32_t index;
 
-    if (!dir || !name) {
+    if (!dir || !name || !*name) {
         return NULL;
     }
     udf = dir->udf;
